@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Finger Dungeon Web</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="flashLayer"></div>
+
+  <div class="container">
+    <h1>Finger Dungeon Web</h1>
+
+    <div id="topBar">
+      <div id="stageInfo"></div>
+      <div id="turnInfo"></div>
+    </div>
+
+    <!-- ENEMY -->
+    <div class="side enemy">
+      <h2>ENEMY</h2>
+      <div class="gauge">
+        <div id="enemyGauge" class="gauge-fill enemy-fill"></div>
+      </div>
+      <div class="hands">
+        <div class="hand" id="enemy-left"></div>
+        <div class="hand" id="enemy-right"></div>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- PLAYER -->
+    <div class="side player">
+      <h2>PLAYER</h2>
+      <div class="gauge">
+        <div id="playerGauge" class="gauge-fill player-fill"></div>
+      </div>
+      <div class="hands">
+        <div class="hand selectable" id="player-left"></div>
+        <div class="hand selectable" id="player-right"></div>
+      </div>
+    </div>
+
+    <div id="message"></div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
