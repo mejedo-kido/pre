@@ -2,11 +2,28 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>Finger Dungeon Web — Stable Full</title>
+  <title>Finger Dungeon Web — SE Enabled</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+
+  <!-- ===== Title Screen ===== -->
+  <div id="titleScreen" class="screen">
+    <h1 class="title">Finger Dungeon</h1>
+    <h2 class="subtitle">Web Edition</h2>
+
+    <div class="title-buttons">
+      <button id="startButton" class="bigButton">START</button>
+      <button id="resetButton" class="smallButton">リセット（スキル初期化）</button>
+    </div>
+
+    <div class="bestStage">
+      Best Stage : <span id="bestStageValue">1</span>
+    </div>
+  </div>
+
+  <!-- flash layer for effects -->
   <div id="flashLayer"></div>
 
   <div class="container">
