@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Finger Dungeon Web</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <title>Finger Dungeon Web — Stable Full</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="flashLayer"></div>
@@ -12,34 +13,50 @@
     <h1>Finger Dungeon Web</h1>
 
     <div id="topBar">
-      <div id="stageInfo"></div>
-      <div id="turnInfo"></div>
+      <div id="stageInfo">Stage 1</div>
+      <div id="skillInfo">Equipped: —</div>
     </div>
 
     <!-- ENEMY -->
     <div class="side enemy">
       <h2>ENEMY</h2>
-      <div class="gauge">
-        <div id="enemyGauge" class="gauge-fill enemy-fill"></div>
-      </div>
       <div class="hands">
-        <div class="hand" id="enemy-left"></div>
-        <div class="hand" id="enemy-right"></div>
+        <div class="hand-wrapper">
+          <div class="hand" id="enemy-left"></div>
+          <div class="mini-bar"><div id="enemy-left-bar" class="mini-fill enemy-fill"></div></div>
+        </div>
+        <div class="hand-wrapper">
+          <div class="hand" id="enemy-right"></div>
+          <div class="mini-bar"><div id="enemy-right-bar" class="mini-fill enemy-fill"></div></div>
+        </div>
       </div>
     </div>
 
-    <hr>
+    <hr />
 
     <!-- PLAYER -->
     <div class="side player">
       <h2>PLAYER</h2>
-      <div class="gauge">
-        <div id="playerGauge" class="gauge-fill player-fill"></div>
-      </div>
       <div class="hands">
-        <div class="hand selectable" id="player-left"></div>
-        <div class="hand selectable" id="player-right"></div>
+        <div class="hand-wrapper">
+          <div class="hand selectable" id="player-left"></div>
+          <div class="mini-bar"><div id="player-left-bar" class="mini-fill player-fill"></div></div>
+        </div>
+        <div class="hand-wrapper">
+          <div class="hand selectable" id="player-right"></div>
+          <div class="mini-bar"><div id="player-right-bar" class="mini-fill player-fill"></div></div>
+        </div>
       </div>
+    </div>
+
+    <div id="skillSelectArea"></div>
+
+    <div id="skillInventory">
+      <h3>Equipped (this stage)</h3>
+      <div id="equippedList" class="skill-choices"></div>
+
+      <h3>Unlocked (permanent)</h3>
+      <div id="unlockedList" class="skill-choices"></div>
     </div>
 
     <div id="message"></div>
