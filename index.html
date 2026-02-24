@@ -23,6 +23,27 @@
     </div>
   </div>
 
+  <!-- ===== Rule Screen (title -> rule -> start) ===== -->
+  <div id="ruleScreen" class="screen" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:22px;">
+    <h2 style="margin:0">📝 ゲームルール</h2>
+    <div style="max-width:520px; text-align:left; line-height:1.5; color:#ddd; margin-top:12px;">
+      <ul style="text-align:left; padding-left:18px;">
+        <li>各手の数値を使って相手の手に加算して攻撃します。</li>
+        <li>相手の手が閾値（通常は5）以上になるとその手は破壊（0）されます。</li>
+        <li>プレイヤー・敵ともに左右2つの手を持ちます。自分の両手が0だと敗北、敵の両手が0だと勝利です。</li>
+        <li>ステージ開始時、プレイヤーの手は全回復します。敵の手はステージで増えません（固定1〜2）。</li>
+        <li>スキルは「パッシブ / アクティブ / ターン / イベント / 妨害 / バフ / カウンター」等があります。</li>
+        <li>ステージごとにスキルを装備（最大数）し、勝利でスキルをアンロック／強化できます。</li>
+        <li>敵もスキルを持ち、戦闘中に使用します（画面に表示されます）。SEやアニメは一部のみです。</li>
+      </ul>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:8px;">
+      <button id="ruleBackButton" class="smallButton">タイトルに戻る</button>
+      <button id="ruleNextButton" class="bigButton">ルールを確認した！ゲーム開始</button>
+    </div>
+  </div>
+
   <!-- flash layer for effects -->
   <div id="flashLayer"></div>
 
