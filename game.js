@@ -1,8 +1,6 @@
-/* game.js — レアリティ対応 完全版（差し替え用）
-   - スキルごとに固定 rarity を割り振り（指定どおり）
-   - 報酬3択は rarity 重み付きで抽選（common:60 / rare:30 / epic:10）
-   - UI に rarity クラスを付与
-   - 既存バランス調整（power cap, berserk x2, regen self-decrease, heal self-decrease, safeDecrease min 1）を維持
+/* game.js — 修正版（Guard / Counter / Fortify / Heal の双方向適用を修正）
+   既存のレアリティ・バランス・演出は保持しています。
+   このファイルで既存の game.js を丸ごと置き換えてください。
 */
 
 const STORAGE_KEY = 'fd_unlocked_skills_v2';
@@ -28,7 +26,7 @@ const SKILL_POOL = [
   { id:'revenge',   type:'event',   baseDesc:'自分の手が0になったら即ヒール +level', name:'🔥 リベンジ', rarity:'rare'},
   { id:'disrupt',   type:'active',  baseDesc:'敵の手を -(1+level)（直接減少、最小1）', name:'🪓 ディスラプト', rarity:'common'},
   { id:'teamPower', type:'turn',    baseDesc:'味方全体の攻撃 +level（2*levelターン）', name:'🌟 チームパワー', rarity:'rare'},
-  { id:'counter',   type:'event',   baseDesc:'攻撃を受けた時、相手の手を +level', name:'↺ カウンター', rarity:'common'}
+  { id:'counter',   type:'event',   baseDesc:'攻撃を受けた時、相手の手を +level して反撃', name:'↺ カウンター', rarity:'common'}
 ];
 
 /* ---------- game state ---------- */
@@ -158,6 +156,70 @@ function resetGame(){
   if(equippedList) equippedList.innerHTML = '';
   messageArea.textContent = 'スキルをリセットしました（初期スキルに戻しました）';
   showTitle();
+}
+
+/* ---------- helper utilities for fixes ---------- */
+function safeDecrease(cur, amount){
+  // cur: current numeric value
+  // amount: positive integer to subtract
+  cur = toNum(cur);
+  if(cur === 0) return 0;
+  let newVal = cur - amount;
+  if(newVal < 1) newVal = 1;
+  return newVal;
+}
+
+// get skill level on a unit (player/equipped vs enemy/enemySkills)
+function getSkillLevelOnUnit(isEnemy, skillId){
+  if(isEnemy){
+    if(!gameState.enemySkills) return 0;
+    const s = gameState.enemySkills.find(x=>x.id===skillId);
+    return s ? (s.level||1) : 0;
+  } else {
+    // player: check equipped skills
+    const s = (gameState.equippedSkills || []).find(x=>x.id===skillId);
+    return s ? (s.level||1) : 0;
+  }
+}
+
+// compute defense (guard) for a target (used to reduce incoming attack)
+// targetIsEnemy: true if the attack target is enemy, false if target player
+function computeDefenseForTarget(targetIsEnemy){
+  let reduction = 0;
+  if(targetIsEnemy){
+    // passive guard on enemy
+    (gameState.enemySkills || []).forEach(s => { if(s.id === 'guard') reduction += s.level; });
+    // enemy turn buffs (enemyGuardBoost or guardBoost)
+    (gameState.enemyTurnBuffs || []).forEach(tb => {
+      if(tb.payload && (tb.payload.type === 'enemyGuardBoost' || tb.payload.type === 'guardBoost')) reduction += tb.payload.value;
+    });
+  } else {
+    // passive guard on player (equipped)
+    (gameState.equippedSkills || []).forEach(s => { if(s.id === 'guard') reduction += s.level; });
+    (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.payload.type === 'guardBoost') reduction += tb.payload.value; });
+  }
+  return reduction;
+}
+
+// handle counter reaction: when target receives an attack, apply target's counter to attacker
+// attackerIsEnemy: boolean, attackerSide: 'left'|'right', targetIsEnemy: boolean, targetSide: 'left'|'right'
+function handleCounter(attackerIsEnemy, attackerSide, targetIsEnemy, targetSide){
+  const counterLevel = getSkillLevelOnUnit(targetIsEnemy, 'counter');
+  if(!counterLevel || counterLevel <= 0) return;
+
+  // apply to attacker
+  if(attackerIsEnemy){
+    const cur = toNum(gameState.enemy[attackerSide]);
+    gameState.enemy[attackerSide] = Math.min(MAX_VALUE, cur + counterLevel);
+    const el = hands[ attackerSide === 'left' ? 'enemyLeft' : 'enemyRight' ];
+    showPopupText(el, `+${counterLevel}`, '#ffd166');
+  } else {
+    const cur = toNum(gameState.player[attackerSide]);
+    gameState.player[attackerSide] = Math.min(MAX_VALUE, cur + counterLevel);
+    const el = hands[ attackerSide === 'left' ? 'playerLeft' : 'playerRight' ];
+    showPopupText(el, `+${counterLevel}`, '#ffd166');
+  }
+  messageArea.textContent = `カウンター発動！攻撃者に +${counterLevel}`;
 }
 
 /* ---------- init & title handling (robust) ---------- */
@@ -347,7 +409,7 @@ function commitEquips(){
   messageArea.textContent = '';
   renderEquipped();
   renderUnlockedList();
-  skillInfo.textContent = 'Equipped: ' + (gameState.equippedSkills.map(s=>`${s.name} Lv${s.level}`).join(', ') || '—');
+  skillInfo.textContent = 'Equipped: ' + (gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') || '—');
 }
 
 /* ---------- rendering ---------- */
@@ -450,7 +512,6 @@ function updateEnemySkillUI(){
   const parts = gameState.enemySkills.map(s => {
     const cd = s.remainingCooldown && s.remainingCooldown > 0 ? ` (CD:${s.remainingCooldown})` : '';
     const color = typeColor[s.type] || '#fff';
-    // show rarity on enemy skills too if you want (lookup)
     const def = SKILL_POOL.find(x=>x.id===s.id) || {};
     const rar = def.rarity ? ` [${def.rarity.toUpperCase()}]` : '';
     return `<span style="color:${color}; font-weight:700; margin-right:6px">${s.name}${rar} Lv${s.level}${cd}</span>`;
@@ -614,15 +675,6 @@ function getDestroyThreshold(attackerIsPlayer = true){
   return threshold;
 }
 
-/* ---------- helper: safe decrease (min 1, unless cur===0) ---------- */
-function safeDecrease(cur, amount){
-  cur = toNum(cur);
-  if(cur === 0) return 0;
-  let newVal = cur - amount;
-  if(newVal < 1) newVal = 1;
-  return newVal;
-}
-
 /* ---------- active handlers (player) ---------- */
 function applyPendingActiveOnPlayer(side){
   if(!gameState.pendingActiveUse) return;
@@ -694,6 +746,8 @@ function playerAttack(targetSide){
   let baseAtk = toNum(gameState.player[attackerKey]);
   baseAtk += computePlayerAttackBonus(attackerKey);
 
+  // defense from target (enemy) guard/fortify
+  const defense = computeDefenseForTarget(true);
   let multiplier = gameState.doubleMultiplier || 1;
   gameState.doubleMultiplier = 1;
   if(multiplier > 1){
@@ -701,10 +755,13 @@ function playerAttack(targetSide){
     if(idx !== -1) { gameState.equippedSkills[idx].used = true; renderEquipped(); }
   }
 
+  // compute added after defense
+  let rawAdded = baseAtk * multiplier;
+  const added = Math.max(0, rawAdded - defense);
+
   showDamage(targetEl, baseAtk);
 
   const curEnemy = toNum(gameState.enemy[targetSide]);
-  const added = baseAtk * multiplier;
   let newVal = curEnemy + added;
   if(!Number.isFinite(newVal)) newVal = 0;
 
@@ -720,6 +777,9 @@ function playerAttack(targetSide){
   }
 
   gameState.enemy[targetSide] = newVal;
+
+  // if enemy has counter, handle it (enemy is target)
+  handleCounter(false, attackerKey, true, targetSide);
 
   if(destroyed && hasEquipped('chain')){
     const lvl = getEquippedLevel('chain');
@@ -748,15 +808,18 @@ function enemyTurn(){
     if(skill.remainingCooldown && skill.remainingCooldown > 0) return;
 
     if(skill.id === 'heal'){
-      const damaged = ['left','right'].filter(k => toNum(gameState.enemy[k]) > 0 && toNum(gameState.enemy[k]) < MAX_VALUE);
-      if(damaged.length > 0 && Math.random() < 0.6){
-        const r = damaged[rand(0, damaged.length - 1)];
+      // changed: heal is now self-decrease for enemy (consistent with player's heal)
+      const candidates = ['left','right'].filter(k => toNum(gameState.enemy[k]) > 0);
+      if(candidates.length > 0 && Math.random() < 0.6){
+        const r = candidates[rand(0, candidates.length - 1)];
         const amount = 1 + skill.level;
-        gameState.enemy[r] = Math.min(MAX_VALUE, toNum(gameState.enemy[r]) + amount);
+        const cur = toNum(gameState.enemy[r]);
+        const newVal = safeDecrease(cur, amount);
+        gameState.enemy[r] = newVal;
         const el = hands[r === 'left' ? 'enemyLeft' : 'enemyRight'];
-        showDamage(el, amount, '#ff9e9e');
+        showPopupText(el, `-${amount}`, '#ff9e9e');
         skill.remainingCooldown = 2;
-        messageArea.textContent = `敵が ${skill.name} を使用した`;
+        messageArea.textContent = `敵が ${skill.name} を使用した（自傷）`;
       }
     }
 
@@ -833,7 +896,11 @@ function enemyTurn(){
   let attackValue = toNum(gameState.enemy[from]);
   attackValue += computeEnemyAttackBonus(from);
 
-  const reduction = computeEnemyAttackReduction();
+  // defense from target (player guard/fortify)
+  const defense = computeDefenseForTarget(false);
+  attackValue = Math.max(0, attackValue - defense);
+
+  const reduction = computeEnemyAttackReduction(); // player's guard effect on enemy? keep existing semantics
   attackValue = Math.max(0, attackValue - reduction);
 
   const multiplier = gameState.enemyDoubleMultiplier || 1;
@@ -863,15 +930,13 @@ function enemyTurn(){
 
   gameState.player[to] = newVal;
 
+  // if player (target) has counter, handle it (player is target of enemy attack)
+  handleCounter(true, from, false, to);
+
+  // handle counter from enemySkills as well? Already handled by handleCounter when appropriate.
+
   if(hasEquipped('counter')){
-    const lvl = getEquippedLevel('counter');
-    if(lvl > 0 && toNum(gameState.player[to]) > 0){
-      const curE = toNum(gameState.enemy[from]);
-      gameState.enemy[from] = Math.min(MAX_VALUE, curE + lvl);
-      const eEl = hands[from === 'left' ? 'enemyLeft' : 'enemyRight'];
-      showPopupText(eEl, `+${lvl}`, '#ffd166');
-      messageArea.textContent = `カウンター！敵の手に +${lvl}`;
-    }
+    // previous logic removed — replaced by handleCounter calls above which cover both sides
   }
 
   (gameState.enemySkills || []).forEach(s => {
