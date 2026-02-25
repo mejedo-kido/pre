@@ -1,8 +1,7 @@
 /* game.js — 差し替え用 完全版
-   - 前回の完全修正版をベースに、ホバー時オーバーレイに手ごとの詳細を表示する機能を追加
-   - 敵・自分どちらにも対応。オーバーレイはカーソル追従で常に最新値を表示。
-   - 破壊閾値は attacker-aware（誰に攻撃されるかを想定）で計算し、"破壊まで" を表示。
-   - デバッグ用 console.debug を一部残しています（不要なら消してください）。
+   - console.debug を削除
+   - Unlocked (permanent) 表示欄を非表示にする（もし DOM があれば style.display='none'）
+   - その他は前回統合版と同等の機能（ホバーオーバーレイ、regen 自身のみ、attacker-aware 閾値、選択トグル、最大レベル除外報酬 等）
 */
 
 const STORAGE_KEY = 'fd_unlocked_skills_v2';
@@ -80,6 +79,7 @@ const thresholdInfo = document.getElementById('thresholdInfo');
 const messageArea = document.getElementById('message');
 const skillSelectArea = document.getElementById('skillSelectArea');
 const equippedList = document.getElementById('equippedList');
+// unlockedList intentionally kept but will be hidden (remove Unlocked UI)
 const unlockedList = document.getElementById('unlockedList');
 const flashLayer = document.getElementById('flashLayer');
 
@@ -171,7 +171,9 @@ function resetGame(){
   equipTemp = [];
   removeOverlay();
 
-  renderUnlockedList();
+  // hide unlocked list UI area if present
+  if(unlockedList) unlockedList.style.display = 'none';
+
   if(equippedList) equippedList.innerHTML = '';
   messageArea.textContent = 'スキルをリセットしました（初期スキルに戻しました）';
   showTitle();
@@ -245,6 +247,9 @@ function initGame(){
   if(skillSelectArea) skillSelectArea.innerHTML = '';
   if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: —';
   messageArea.textContent = '';
+
+  // hide Unlocked (permanent) column if present
+  if(unlockedList) unlockedList.style.display = 'none';
 
   startButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'flex'; };
   resetButton.onclick = () => { playSE('click', 0.5); resetGame(); };
@@ -327,7 +332,6 @@ function startBattle(){
 
   updateUI();
   showEquipSelection();
-  renderUnlockedList();
 }
 
 /* ---------- assign enemy skills ---------- */
@@ -413,7 +417,6 @@ function commitEquips(){
   skillSelectArea.innerHTML = '';
   messageArea.textContent = '';
   renderEquipped();
-  renderUnlockedList();
   skillInfo.textContent = 'Equipped: ' + (gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') || '—');
 }
 
@@ -481,21 +484,11 @@ function renderEquipped(){
   });
 }
 
+// renderUnlockedList は UI 上に表示しないので、存在しても非表示にします（後方互換のため関数は残す）
 function renderUnlockedList(){
-  unlockedList.innerHTML = '';
-  if(!gameState.unlockedSkills || gameState.unlockedSkills.length === 0){
-    unlockedList.textContent = '(No unlocked skills)';
-    return;
+  if(unlockedList) {
+    unlockedList.style.display = 'none';
   }
-  gameState.unlockedSkills.forEach(u => {
-    const def = SKILL_POOL.find(s=>s.id===u.id);
-    if(!def) return;
-    const card = document.createElement('div');
-    card.className = 'skill-card';
-    card.classList.add('rarity-' + (def.rarity || 'common'));
-    card.innerHTML = `<div style="font-weight:700">${def.name} Lv${u.level}</div><div style="font-size:12px;opacity:.85">${def.baseDesc}</div><div style="font-size:11px;opacity:.85;margin-top:6px">${(def.rarity||'common').toUpperCase()}</div>`;
-    unlockedList.appendChild(card);
-  });
 }
 
 /* ---------- enemy skill UI ---------- */
@@ -826,9 +819,6 @@ function playerAttack(targetSide){
   const destroyThreshold = getDestroyThreshold(true);
   let destroyed = false;
 
-  // debug: log values used for destroy decision (helpful while debugging threshold issues)
-  console.debug('[DestroyCheck] ATTACKER=PLAYER targetSide=', targetSide, 'curEnemy=', curEnemy, 'added=', added, 'newVal=', newVal, 'threshold=', destroyThreshold, 'equippedPierceLevels=', (gameState.equippedSkills||[]).filter(s=>s.id==='pierce').map(s=>s.level));
-
   // ensure numeric comparison (exactly using threshold only)
   if(Number(newVal) >= Number(destroyThreshold)){
     newVal = 0;
@@ -976,9 +966,6 @@ function enemyTurn(){
 
   const destroyThreshold = getDestroyThreshold(false);
 
-  // debug: log values used for destroy decision (helpful while debugging threshold issues)
-  console.debug('[DestroyCheck] ATTACKER=ENEMY targetSide=', to, 'curPlayer=', curPlayer, 'added=', attackValue, 'newVal=', newVal, 'threshold=', destroyThreshold, 'enemyPierceLevels=', (gameState.enemySkills||[]).filter(s=>s.id==='pierce').map(s=>s.level));
-
   const wasDestroyed = Number(newVal) >= Number(destroyThreshold);
   if(wasDestroyed){
     newVal = 0;
@@ -1083,12 +1070,16 @@ function weightedRandomSkillFromList(list){
   return list[0];
 }
 
-/* ---------- reward selection (weighted by rarity) ---------- */
+/* ---------- reward selection (weighted by rarity) ----------
+   Modified: excludes unlocked skills that are already at cap from upgrade candidates.
+*/
 function showRewardSelection(){
   // regular skill reward (non-boss)
   const unlockedIds = (gameState.unlockedSkills || []).map(u=>u.id);
   const notUnlocked = SKILL_POOL.filter(s => !unlockedIds.includes(s.id));
   const picks = [];
+
+  // pick from notUnlocked first (weighted)
   const tempPool = notUnlocked.slice();
   while(picks.length < 3 && tempPool.length > 0){
     const pick = weightedRandomSkillFromList(tempPool);
@@ -1097,15 +1088,39 @@ function showRewardSelection(){
     const idx = tempPool.findIndex(x=>x.id===pick.id);
     if(idx!==-1) tempPool.splice(idx,1);
   }
-  const upgradeCandidates = gameState.unlockedSkills.slice().map(u => ({ id: u.id, level: u.level, isUpgrade:true }));
+
+  // helper for cap
+  const getCap = (skillId) => SKILL_LEVEL_CAP[skillId] || MAX_SKILL_LEVEL;
+
+  // add upgrade candidates but exclude those already at cap
+  const upgradeCandidates = (gameState.unlockedSkills || [])
+    .filter(u => {
+      const cap = getCap(u.id);
+      return (u.level || 1) < cap;
+    })
+    .map(u => ({ id: u.id, level: u.level, isUpgrade:true }));
+
   while(picks.length < 3 && upgradeCandidates.length > 0){
     const u = upgradeCandidates.shift();
     picks.push({ id: u.id, isUpgrade:true });
   }
-  if(picks.length === 0){
-    if(gameState.unlockedSkills.length > 0) picks.push({ id: gameState.unlockedSkills[0].id, isUpgrade:true });
+
+  // If still short, allow adding any remaining notUnlocked (rare) or fallback
+  if(picks.length < 3){
+    const remainingNotUnlocked = SKILL_POOL.filter(s => !picks.some(p=>p.id===s.id));
+    for(const s of remainingNotUnlocked){
+      if(picks.length >= 3) break;
+      if(!unlockedIds.includes(s.id)) picks.push({ id: s.id, isNew:true });
+    }
   }
 
+  // final fallback: if still nothing (all skills locked/at-cap), show a safe placeholder using first unlocked
+  if(picks.length === 0){
+    if(gameState.unlockedSkills.length > 0) picks.push({ id: gameState.unlockedSkills[0].id, isUpgrade:true });
+    else picks.push({ id: SKILL_POOL[0].id, isNew:true });
+  }
+
+  // build UI
   skillSelectArea.innerHTML = '';
   messageArea.textContent = '報酬スキルを1つ選んでください（永久アンロック / アップグレード）';
   const wrap = document.createElement('div'); wrap.className = 'skill-choices';
@@ -1114,7 +1129,7 @@ function showRewardSelection(){
     const def = SKILL_POOL.find(s=>s.id===p.id);
     if(!def) return;
     const unlockedObj = gameState.unlockedSkills.find(u=>u.id===p.id);
-    const label = p.isUpgrade ? `${def.name} を上昇 (現在 Lv${unlockedObj.level})` : `${def.name} をアンロック`;
+    const label = p.isUpgrade ? `${def.name} を上昇 (現在 Lv${unlockedObj ? unlockedObj.level : 0})` : `${def.name} をアンロック`;
     const btn = document.createElement('button');
     btn.className = 'skill-btn node-btn';
     btn.classList.add('rarity-' + (def.rarity || 'common'));
@@ -1122,16 +1137,21 @@ function showRewardSelection(){
     btn.onclick = () => {
       playSE('click', 0.5);
       if(p.isUpgrade && unlockedObj){
-        const cap = SKILL_LEVEL_CAP[def.id] || MAX_SKILL_LEVEL;
+        const cap = getCap(def.id);
         unlockedObj.level = Math.min(cap, (unlockedObj.level || 1) + 1);
         messageArea.textContent = `${def.name} を Lv${unlockedObj.level} に強化しました`;
       } else {
-        const cap = SKILL_LEVEL_CAP[def.id] || MAX_SKILL_LEVEL;
-        gameState.unlockedSkills.push({ id: def.id, level: 1 });
-        messageArea.textContent = `${def.name} をアンロックしました！`;
+        const cap = getCap(def.id);
+        // if already unlocked (edge fallback), treat as upgrade instead of adding duplicate
+        if(unlockedObj){
+          unlockedObj.level = Math.min(cap, (unlockedObj.level || 1) + 1);
+          messageArea.textContent = `${def.name} を Lv${unlockedObj.level} に強化しました`;
+        } else {
+          gameState.unlockedSkills.push({ id: def.id, level: 1 });
+          messageArea.textContent = `${def.name} をアンロックしました！`;
+        }
       }
       saveUnlocked();
-      renderUnlockedList();
       skillSelectArea.innerHTML = '';
       flashScreen(.14);
       setTimeout(()=> {
@@ -1208,6 +1228,15 @@ function selectHand(side){
   if(toNum(gameState.player[side]) === 0) return;
 
   playSE('click', 0.5);
+
+  // Toggle: same side tapped again => deselect
+  if(selectedHand === side){
+    selectedHand = null;
+    if(hands.playerLeft) hands.playerLeft.classList.remove('selected');
+    if(hands.playerRight) hands.playerRight.classList.remove('selected');
+    messageArea.textContent = '選択を解除しました';
+    return;
+  }
 
   selectedHand = side;
   if(hands.playerLeft) hands.playerLeft.classList.toggle('selected', side === 'left');
@@ -1351,11 +1380,11 @@ function refreshOverlayContent(owner, hand){
     html += `<div style="margin-top:8px; color:#ffd">${buffs.join(' / ')}</div>`;
   }
 
-  // extra: list skills on that unit (passives) - passive names
+  // extra: list related passive/combo/event skills on that unit (display only names & lv) - this is "関連スキル"
   const skills = isEnemy ? (gameState.enemySkills || []) : (gameState.equippedSkills || []).filter(s=>s.type==='passive' || s.type==='event' || s.type==='combo');
   if(skills && skills.length > 0){
     const skillNames = skills.map(s => `${s.name} Lv${s.level||1}`);
-    html += `<div style="margin-top:8px; font-size:12px; opacity:0.9">Skills: ${skillNames.join(' / ')}</div>`;
+    html += `<div style="margin-top:8px; font-size:12px; opacity:0.9">関連スキル: ${skillNames.join(' / ')}</div>`;
   }
 
   _overlayEl.innerHTML = html;
@@ -1375,14 +1404,10 @@ function removeOverlay(){
   }
 }
 
-/* ---------- remaining functions (unchanged) ---------- */
-/* ... the rest of the file (utility, AI, reward, etc.) already present above ... */
-/* Note: all calls above already integrated with updateUI() which refreshes overlay live. */
-
 /* ---------- start ---------- */
 initGame();
 
-/* expose for debugging */
+/* expose for debugging (non-console.debug) */
 window.__FD = {
   state: gameState,
   saveUnlocked,
@@ -1394,6 +1419,6 @@ window.__FD = {
   renderUnlockedList,
   assignEnemySkills,
   showBossRewardSelection,
-  // helper debug
+  // helper
   debug_getDestroyThreshold: getDestroyThreshold
 };
