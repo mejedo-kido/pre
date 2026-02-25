@@ -1158,7 +1158,7 @@ function showBossRewardSelection(){
   wrap.className = 'skill-choices';
 
   const options = [
-    { key:'playerThreshold', label:`指の閾値 +1 （現在 ${gameState.baseStats.playerThreshold}）` },
+    { key:'playerThreshold', label:`指の最大値 +1 （現在 ${gameState.baseStats.playerThreshold}）` },
     { key:'baseAttack', label:`基礎攻撃力 +1 （現在 ${gameState.baseStats.baseAttack}）` },
     { key:'baseDefense', label:`基礎防御力 +1 （現在 ${gameState.baseStats.baseDefense}）` }
   ];
@@ -1331,20 +1331,10 @@ function refreshOverlayContent(owner, hand){
   let attackerDouble = (attackerIsPlayer ? gameState.doubleMultiplier : gameState.enemyDoubleMultiplier) || 1;
   const attackerDoubleText = attackerDouble > 1 ? `（次の攻撃が×${attackerDouble}）` : '';
 
-  // heuristics: show typical potential attacker attack value (for rough idea)
-  // use attacker's stronger hand as sample
-  let sampleAtt = 0;
-  if(attackerIsPlayer){
-    sampleAtt = Math.max(toNum(gameState.player.left), toNum(gameState.player.right)) + computePlayerAttackBonus('left');
-  } else {
-    sampleAtt = Math.max(toNum(gameState.enemy.left), toNum(gameState.enemy.right)) + computeEnemyAttackBonus('left');
-  }
-  const sampleText = `代表攻撃力目安: ${sampleAtt} ${attackerDoubleText}`;
-
   // build content
   let html = `<div style="font-weight:800; margin-bottom:6px">${isEnemy ? '敵' : 'あなた'} — ${hand === 'left' ? '左手' : '右手'}</div>`;
   html += `<div>現在値: <b>${value}</b></div>`;
-  html += `<div>閾値（想定攻撃元に対して）: <b>${destroyThreshold}</b> ${pierceInfo}</div>`;
+  html += `<div>最大値: <b>${destroyThreshold}</b> ${pierceInfo}</div>`;
   html += `<div style="margin-top:6px; font-weight:700">${remText}</div>`;
   html += `<div style="margin-top:6px; color:#ccc">${sampleText}</div>`;
   if(buffs.length > 0){
@@ -1397,3 +1387,4 @@ window.__FD = {
   // helper debug
   debug_getDestroyThreshold: getDestroyThreshold
 };
+
