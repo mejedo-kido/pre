@@ -1331,6 +1331,16 @@ function refreshOverlayContent(owner, hand){
   let attackerDouble = (attackerIsPlayer ? gameState.doubleMultiplier : gameState.enemyDoubleMultiplier) || 1;
   const attackerDoubleText = attackerDouble > 1 ? `（次の攻撃が×${attackerDouble}）` : '';
 
+  // heuristics: show typical potential attacker attack value (for rough idea)
+  // use attacker's stronger hand as sample
+  let sampleAtt = 0;
+  if(attackerIsPlayer){
+    sampleAtt = Math.max(toNum(gameState.player.left), toNum(gameState.player.right)) + computePlayerAttackBonus('left');
+  } else {
+    sampleAtt = Math.max(toNum(gameState.enemy.left), toNum(gameState.enemy.right)) + computeEnemyAttackBonus('left');
+  }
+  const sampleText = `代表攻撃力目安: ${sampleAtt} ${attackerDoubleText}`;
+
   // build content
   let html = `<div style="font-weight:800; margin-bottom:6px">${isEnemy ? '敵' : 'あなた'} — ${hand === 'left' ? '左手' : '右手'}</div>`;
   html += `<div>現在値: <b>${value}</b></div>`;
@@ -1387,4 +1397,3 @@ window.__FD = {
   // helper debug
   debug_getDestroyThreshold: getDestroyThreshold
 };
-
