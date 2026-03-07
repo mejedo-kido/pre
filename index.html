@@ -44,6 +44,21 @@
     </div>
   </div>
 
+  <!-- ===== Clear Screen (Stage12クリア後に表示される画面) ===== -->
+  <div id="clearScreen" class="screen" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:22px;">
+    <h1 class="title">GAME CLEAR!</h1>
+    <h2 class="subtitle">12 Stages Cleared</h2>
+
+    <div class="title-buttons">
+      <button id="endlessButton" class="bigButton">ENDLESS MODE</button>
+      <button id="backToTitleButton" class="smallButton">最初に戻る</button>
+    </div>
+
+    <div style="font-size:14px; color:#ddd; margin-top:8px;">
+      Endless を選ぶと Stage13 から永続的に挑戦できます。
+    </div>
+  </div>
+
   <!-- flash layer for effects -->
   <div id="flashLayer"></div>
 
@@ -56,6 +71,8 @@
         <span id="skillInfo">Equipped: —</span>
         <span id="thresholdInfo" class="meta">Threshold: 5</span>
       </div>
+      <!-- リタイアはJSでも自動追加されますが、HTML上でも配置 -->
+      <button id="retireButton" class="smallButton" style="margin-left:12px;">リタイア</button>
     </div>
 
     <!-- ENEMY -->
@@ -120,10 +137,8 @@
   <script src="game.js"></script>
   <script>
     // small helper: show/hide enemy third wrapper based on JS state (if game.js sets gameState.enemyHasThirdHand)
-    // game.js already guards missing DOM elements; this is just a nicety to keep UI synced when game toggles third hand.
-    // game.js sets gameState.enemyHasThirdHand; call this periodically or after updateUI as desired.
+    // this keeps UI synced when game toggles third hand.
     (function(){
-      // observe a small interval to toggle display when third hand appears — harmless and lightweight.
       setInterval(()=> {
         try {
           const wrapper = document.getElementById('enemy-third-wrapper');
