@@ -1179,10 +1179,12 @@ function weightedRandomSkillFromList(list){ if(!list || list.length === 0) retur
 
 /* ---------- update loops ---------- */
 function tickTurnBuffsWrapper(){ tickTurnBuffs(); tickEnemyTurnBuffs(); updateUI(); }
-
+/* --------- forceLose ----------- */
+function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; checkWinLose(); }
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
 
 
