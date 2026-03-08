@@ -1183,3 +1183,6 @@ function tickTurnBuffsWrapper(){ tickTurnBuffs(); tickEnemyTurnBuffs(); updateUI
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
+
+
