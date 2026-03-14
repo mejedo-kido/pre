@@ -249,6 +249,33 @@ function resetFullGameToTitle(){
 }
 
 /* ---------- helper utilities ---------- */
+// スキルごとのベースクールダウン（レベルが上がると短縮する方式）
+function getSkillCooldown(skillId, level){
+  const base = {
+    double: 3,
+    heal: 4,
+    disrupt: 3,
+    overheat: 4,
+    pumpUp: 3,
+    split: 8,
+    // その他のアクティブがあればここに追加
+  };
+  const b = base[skillId] || 3;
+  const lv = Number(level || 1);
+  // レベル1で base, レベル2で base-1 ... 最小1ターン
+  return Math.max(1, b - (lv - 1));
+}
+
+// ターン経過でクールダウンを減らす（敵ターンの最後で呼ぶ）
+function tickSkillCooldowns(){
+  (gameState.equippedSkills || []).forEach(s => {
+    if(typeof s.remainingCooldown === 'number' && s.remainingCooldown > 0){
+      s.remainingCooldown = Math.max(0, s.remainingCooldown - 1);
+    }
+  });
+  // UI 更新
+  renderEquipped();
+}
 function safeDecrease(cur, amount){ cur = toNum(cur); if(cur === 0) return 0; let newVal = cur - amount; if(newVal < 1) newVal = 1; return newVal; }
 function getSkillLevelOnUnit(isEnemy, skillId){ if(isEnemy){ if(!gameState.enemySkills) return 0; const s = gameState.enemySkills.find(x=>x.id===skillId); return s ? (s.level||1) : 0; } else { const s = (gameState.equippedSkills || []).find(x=>x.id===skillId); return s ? (s.level||1) : 0; } }
 function computeDefenseForTarget(targetIsEnemy){
@@ -523,10 +550,20 @@ function showEquipSelection(){
 }
 
 function commitEquips(){
-  gameState.equippedSkills = equipTemp.map(id => {
+    gameState.equippedSkills = equipTemp.map(id => {
     const unlocked = gameState.unlockedSkills.find(u=>u.id===id);
     const def = SKILL_POOL.find(s=>s.id===id);
-    return { id: def.id, level: (unlocked && unlocked.level) ? unlocked.level : 1, type: def.type, name: def.name, desc: def.baseDesc, used: false, remainingTurns: 0 };
+    return {
+      id: def.id,
+      level: (unlocked && unlocked.level) ? unlocked.level : 1,
+      type: def.type,
+      name: def.name,
+      desc: def.baseDesc,
+      used: false,
+      remainingTurns: 0,
+      // 新: active用のクールダウン（装備時は0）
+      remainingCooldown: 0
+    };
   });
   equipTemp = []; skillSelectArea.innerHTML = ''; messageArea.textContent = ''; renderEquipped();
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
@@ -551,31 +588,78 @@ function applyBattleStartPassives(){
 /* ---------- rendering ---------- */
 function renderEquipped(){
   equippedList.innerHTML = '';
-  if(!gameState.equippedSkills || gameState.equippedSkills.length === 0){ equippedList.textContent = '(None)'; return; }
+  if(!gameState.equippedSkills || gameState.equippedSkills.length === 0){
+    equippedList.textContent = '(None)';
+    return;
+  }
   gameState.equippedSkills.forEach((s, idx) => {
-    const card = document.createElement('div'); card.className = 'skill-card';
+    const card = document.createElement('div');
+    card.className = 'skill-card';
+
     if(s.type === 'passive' || s.type === 'combo' || s.type === 'event' ){
       card.innerHTML = `<div class="skill-passive">${s.name} Lv${s.level}<div style="font-size:12px;opacity:.85">${s.desc}</div></div>`;
     } else {
-      const btn = document.createElement('button'); btn.textContent = `${s.name} Lv${s.level}`; btn.disabled = s.used;
-      if(s.used) btn.classList.add('used');
+      const btn = document.createElement('button');
+      // disable when either used flag (for turn-type) or remainingCooldown > 0
+      const disabled = (s.used && s.type !== 'active') || (s.remainingCooldown && s.remainingCooldown > 0);
+      btn.textContent = `${s.name} Lv${s.level}`;
+      btn.disabled = disabled;
+      if(disabled) btn.classList.add('used');
+
+      // show cooldown / remaining turns on the card
+      const metaParts = [];
+      if(s.remainingTurns && s.remainingTurns > 0) metaParts.push(`${s.remainingTurns}ターン`);
+      if(s.remainingCooldown && s.remainingCooldown > 0) metaParts.push(`CD:${s.remainingCooldown}`);
+      const metaText = metaParts.length ? `(${metaParts.join(' / ')})` : '';
+
       btn.onclick = () => {
-        if(gameState.inBossReward) return; if(s.used) return; playSE('skill', 0.7);
-        if(s.id === 'double'){ s.used = true; gameState.doubleMultiplier = 1 + s.level; messageArea.textContent = `${s.name} を発動（次の攻撃が×${gameState.doubleMultiplier}）`; renderEquipped(); }
-        else if(s.id === 'heal'){ gameState.pendingActiveUse = { id: 'heal', idx }; messageArea.textContent = 'ヒール使用：自分の手を選んでください'; }
-        else if(s.id === 'disrupt'){ gameState.pendingActiveUse = { id: 'disrupt', idx }; messageArea.textContent = 'ディスラプト使用：敵の手を選んでください'; }
-        else if(s.id === 'teamPower'){ s.used = true; const duration = 2 * s.level; s.remainingTurns = duration; applyTurnBuff('teamPower', s.level, duration); messageArea.textContent = `${s.name} を ${duration} ターン有効化しました（味方全体の攻撃 +${s.level}）`; renderEquipped(); }
-        else if(s.type === 'turn'){ s.used = true; const duration = 2 * s.level; s.remainingTurns = duration; applyTurnBuff(s.id, s.level, duration); messageArea.textContent = `${s.name} を ${duration} ターン有効化しました`; renderEquipped(); }
-        else {
-          if(s.id === 'overheat'){ gameState.pendingActiveUse = { id: 'overheat', idx }; messageArea.textContent = 'オーバーヒート使用：自分の手を選んでください（+3、シールド+Lv）'; }
-          else if(s.id === 'pumpUp'){ gameState.pendingActiveUse = { id: 'pumpUp', idx }; messageArea.textContent = 'パンプアップ使用：自分の手を選んでください（+Lv）'; }
-          else if(s.id === 'split'){ gameState.pendingActiveUse = { id: 'split', idx }; messageArea.textContent = '分割使用：片手のみ生存の時に、その手を選んでください（分割されます）'; }
-          else messageArea.textContent = 'このスキルは現在使用できません';
+        if(gameState.inBossReward) return;
+        if(btn.disabled) return;
+        playSE('skill', 0.7);
+        // active skills use remainingCooldown rather than permanent used flag
+        if(s.id === 'double'){
+          // double: immediate effect + set cooldown
+          s.remainingCooldown = getSkillCooldown(s.id, s.level);
+          gameState.doubleMultiplier = 1 + s.level;
+          messageArea.textContent = `${s.name} を発動（次の攻撃が×${gameState.doubleMultiplier}）`;
+          renderEquipped();
+        } else if(s.id === 'heal'){
+          gameState.pendingActiveUse = { id: 'heal', idx };
+          messageArea.textContent = 'ヒール使用：自分の手を選んでください';
+        } else if(s.id === 'disrupt'){
+          gameState.pendingActiveUse = { id: 'disrupt', idx };
+          messageArea.textContent = 'ディスラプト使用：敵の手を選んでください';
+        } else if(s.id === 'overheat'){
+          gameState.pendingActiveUse = { id: 'overheat', idx };
+          messageArea.textContent = 'オーバーヒート使用：自分の手を選んでください（+3、シールド+Lv）';
+        } else if(s.id === 'pumpUp'){
+          gameState.pendingActiveUse = { id: 'pumpUp', idx };
+          messageArea.textContent = 'パンプアップ使用：自分の手を選んでください（+Lv）';
+        } else if(s.id === 'split'){
+          gameState.pendingActiveUse = { id: 'split', idx };
+          messageArea.textContent = '分割使用：片手のみ生存の時に、その手を選んでください（分割されます）';
+        } else if(s.type === 'turn'){
+          // turn-type keep using used + remainingTurns behavior
+          s.used = true;
+          const duration = 2 * s.level;
+          s.remainingTurns = duration;
+          applyTurnBuff(s.id, s.level, duration);
+          messageArea.textContent = `${s.name} を ${duration} ターン有効化しました`;
+          renderEquipped();
         }
       };
-      const div = document.createElement('div'); div.className = 'skill-active';
-      if(s.remainingTurns && s.remainingTurns > 0){ const meta = document.createElement('div'); meta.style.fontSize = '12px'; meta.style.opacity = '0.9'; meta.textContent = `(${s.remainingTurns}ターン)`; card.appendChild(meta); }
-      div.appendChild(btn); card.appendChild(div);
+
+      const div = document.createElement('div');
+      div.className = 'skill-active';
+      if(metaText){
+        const meta = document.createElement('div');
+        meta.style.fontSize = '12px';
+        meta.style.opacity = '0.9';
+        meta.textContent = metaText;
+        card.appendChild(meta);
+      }
+      div.appendChild(btn);
+      card.appendChild(div);
     }
     equippedList.appendChild(card);
   });
@@ -768,10 +852,72 @@ function applyPendingActiveOnPlayer(side){
   if(!gameState.pendingActiveUse) return;
   const pending = gameState.pendingActiveUse; const sk = gameState.equippedSkills[pending.idx];
   if(!sk || sk.used){ gameState.pendingActiveUse = null; messageArea.textContent = 'そのスキルは使用できません'; return; }
-  if(pending.id === 'heal'){ const amount = 1 + sk.level; playSE('skill', 0.7); const cur = toNum(gameState.player[side]); const newVal = safeDecrease(cur, amount); gameState.player[side] = newVal; sk.used = true; messageArea.textContent = `${sk.name} を ${side} に使用しました (-${amount})`; const el = hands[side === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ff9e9e'); gameState.pendingActiveUse = null; updateUI(); renderEquipped(); return; }
-  if(pending.id === 'overheat'){ const amount = 3; playSE('skill', 0.8); const cur = toNum(gameState.player[side]); const newVal = Math.min(HARD_CAP, cur + amount); gameState.player[side] = newVal; gameState.playerShield = (gameState.playerShield || 0) + (sk.level || 1); sk.used = true; messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount}) — シールド +${sk.level}`; const el = hands[side === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `+${amount}`, '#ffd166'); gameState.pendingActiveUse = null; updateUI(); renderEquipped(); return; }
-  if(pending.id === 'pumpUp'){ const amount = sk.level || 1; playSE('skill', 0.7); const cur = toNum(gameState.player[side]); const newVal = Math.min(HARD_CAP, cur + amount); gameState.player[side] = newVal; sk.used = true; messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount})`; const el = hands[side === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `+${amount}`, '#ffd166'); gameState.pendingActiveUse = null; updateUI(); renderEquipped(); return; }
-  if(pending.id === 'split'){ const alive = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(alive.length !== 1){ messageArea.textContent = '分割は片手のみ生存している時に使用できます'; gameState.pendingActiveUse = null; return; } if(alive[0] !== side){ messageArea.textContent = '分割は生存している手を選んでください'; gameState.pendingActiveUse = null; return; } const val = toNum(gameState.player[side]); if(val < 2){ messageArea.textContent = '分割するには値が2以上必要です'; gameState.pendingActiveUse = null; return; } playSE('skill', 0.75); const half1 = Math.floor(val / 2); const half2 = Math.ceil(val / 2); const other = side === 'left' ? 'right' : 'left'; gameState.player[side] = half1; gameState.player[other] = half2; sk.used = true; messageArea.textContent = `${sk.name} を使用：${val} → ${half1} / ${half2}`; const elSide = hands[side === 'left' ? 'playerLeft' : 'playerRight']; const elOther = hands[other === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(elSide, `${half1}`, '#ffd166'); showPopupText(elOther, `${half2}`, '#ffd166'); gameState.pendingActiveUse = null; updateUI(); renderEquipped(); return; }
+  if(pending.id === 'heal'){
+    const amount = 1 + sk.level;
+    playSE('skill', 0.7);
+    const cur = toNum(gameState.player[side]);
+    const newVal = safeDecrease(cur, amount);
+    gameState.player[side] = newVal;
+    // set cooldown instead of permanent used
+    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+    messageArea.textContent = `${sk.name} を ${side} に使用しました (-${amount})`;
+    const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(el, `-${amount}`, '#ff9e9e');
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
+ if(pending.id === 'overheat'){
+    const amount = 3;
+    playSE('skill', 0.7);
+    const cur = toNum(gameState.player[side]);
+    gameState.player[side] = Math.min(HARD_CAP, cur + amount);
+    gameState.playerShield = (gameState.playerShield || 0) + (sk.level || 1);
+    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+    messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount}) — シールド +${sk.level}`;
+    const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(el, `+${amount}`, '#ffd166');
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
+
+   if(pending.id === 'pumpUp'){
+    const amount = sk.level || 1;
+    playSE('skill', 0.7);
+    const cur = toNum(gameState.player[side]);
+    gameState.player[side] = Math.min(HARD_CAP, cur + amount);
+    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+    messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount})`;
+    const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(el, `+${amount}`, '#ffd166');
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
+  if(pending.id === 'split'){
+    const alive = ['left','right'].filter(k => toNum(gameState.player[k]) > 0);
+    if(alive.length !== 1){
+    messageArea.textContent = '分割は片手のみ生存している時に使用できます';
+    gameState.pendingActiveUse = null; return; } 
+    if(alive[0] !== side){  
+    messageArea.textContent = '分割は生存している手を選んでください';
+    gameState.pendingActiveUse = null; return; }
+    const val = toNum(gameState.player[side]);
+    if(val < 2){ messageArea.textContent = '分割するには値が2以上必要です';
+    gameState.pendingActiveUse = null; return; }
+    playSE('skill', 0.75);
+    const half1 = Math.floor(val / 2); const half2 = Math.ceil(val / 2); const other = side === 'left' ? 'right' : 'left'; 
+    gameState.player[side] = half1; gameState.player[other] = half2; sk.used = true;
+    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+    messageArea.textContent = `${sk.name} を使用：${val} → ${half1} / ${half2}`; 
+    const elSide = hands[side === 'left' ? 'playerLeft' : 'playerRight']; const elOther = hands[other === 'left' ? 'playerLeft' : 'playerRight']; 
+    showPopupText(elSide, `${half1}`, '#ffd166'); showPopupText(elOther, `${half2}`, '#ffd166');
+    gameState.pendingActiveUse = null;
+    updateUI(); renderEquipped(); return; }
   gameState.pendingActiveUse = null; messageArea.textContent = 'その操作は無効です';
 }
 
@@ -780,9 +926,22 @@ function applyPendingActiveOnEnemy(side){
   if(!gameState.pendingActiveUse) return;
   const pending = gameState.pendingActiveUse; const sk = gameState.equippedSkills[pending.idx];
   if(!sk || sk.used){ gameState.pendingActiveUse = null; messageArea.textContent = 'そのスキルは使用できません'; return; }
-  if(pending.id === 'disrupt'){ const amount = 1 + sk.level; const key = side; const el = hands[key === 'left' ? 'enemyLeft' : (key === 'right' ? 'enemyRight' : 'enemyThird')]; const cur = toNum(gameState.enemy[key]); const newVal = safeDecrease(cur, amount); gameState.enemy[key] = newVal; showPopupText(el, `-${amount}`, '#ff9e9e'); sk.used = true; messageArea.textContent = `${sk.name} を ${key} に使用しました (-${amount})`; gameState.pendingActiveUse = null; updateUI(); renderEquipped(); }
+   if(pending.id === 'disrupt'){
+    const amount = 1 + sk.level;
+    const key = side;
+    const el = hands[key === 'left' ? 'enemyLeft' : (key === 'right' ? 'enemyRight' : 'enemyThird')];
+    const cur = toNum(gameState.enemy[key]);
+    const newVal = safeDecrease(cur, amount);
+    gameState.enemy[key] = newVal;
+    showPopupText(el, `-${amount}`, '#ff9e9e');
+    // set cooldown
+    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+    messageArea.textContent = `${sk.name} を ${key} に使用しました (-${amount})`;
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+  }
 }
-
 /* ---------- central destroy-detection helpers ---------- */
 /*
   After any action that could change values (attack, skill), call:
@@ -911,7 +1070,11 @@ function enemyTurn(){
     if(skill.remainingCooldown && skill.remainingCooldown > 0) return;
     if(skill.id === 'heal'){ const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0); if(candidates.length > 0 && Math.random() < 0.6){ const r = candidates[rand(0, candidates.length - 1)]; const amount = 1 + skill.level; const cur = toNum(gameState.enemy[r]); const nv = safeDecrease(cur, amount); gameState.enemy[r] = nv; const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]; showPopupText(el, `-${amount}`, '#ff9e9e'); skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を使用した`; } }
     if(skill.id === 'double'){ if(Math.random() < 0.35){ gameState.enemyDoubleMultiplier = 1 + skill.level; skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を構えた`; } }
-    if(skill.id === 'regen'){ applyRegenToUnit(true, skill.level); }
+    if(skill.id === 'regen' && Math.random() < 0.3){
+  applyRegenToUnit(true, skill.level);
+  skill.remainingCooldown = 3;
+  messageArea.textContent = `敵が ${skill.name} を使用した`;
+}
     if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = 3; messageArea.textContent = `敵が ${skill.name} を構えた`; }
     if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を準備`; }
     if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を使用した`; } }
@@ -981,9 +1144,23 @@ function enemyTurn(){
       });
     }
   });
+gameState.turnBuffs.forEach(tb => {
+  if(tb.payload && tb.payload.type === 'regen') {
+    applyRegenToUnit(false, tb.payload.value);
+  }
+});
+   // at the end of enemyTurn before setting playerTurn true:
+  tickTurnBuffs();
+  tickEnemyTurnBuffs();
 
-  tickTurnBuffs(); tickEnemyTurnBuffs();
-  gameState.playerTurn = true; updateUI(); flashScreen(); checkWinLose();
+  // --- 新: スキルのクールダウンを1減らす（戦闘ラウンド経過） ---
+  tickSkillCooldowns();
+
+  gameState.playerTurn = true;
+  updateUI();
+  flashScreen();
+  checkWinLose();
+
 }
 
 /* ---------- click handlers ---------- */
@@ -1184,6 +1361,8 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
+
 
 
 
