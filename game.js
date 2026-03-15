@@ -19,7 +19,7 @@ const SKILL_POOL = [
   { id:'pierce', type:'passive', baseDesc:'相手の指の最大値を減らす', name:'🔩 ピアス', rarity:'epic' },
   { id:'chain', type:'combo', baseDesc:'敵手を破壊した次の攻撃UP', name:'🔗 チェイン', rarity:'common' },
   { id:'fortify', type:'turn', baseDesc:'自分に防御バフを付与', name:'🏰 フォーティファイ', rarity:'rare' },
-  { id:'revenge', type:'event', baseDesc:'破壊されるとき一度だけ耐え、最大値-1になる', name:'🔥 リベンジ', rarity:'rare' },
+  { id:'revenge', type:'event', baseDesc:'バグ発生中(効果なし)', name:'🔥 リベンジ', rarity:'rare' },
   { id:'disrupt', type:'active', baseDesc:'敵の手を減らす（最小1）', name:'🪓 ディスラプト', rarity:'common' },
   { id:'teamPower', type:'turn', baseDesc:'自分に攻撃バフを付与', name:'🌟 チームパワー', rarity:'rare' },
   { id:'counter', type:'event', baseDesc:'攻撃を受けた時、相手の手にもダメージ', name:'↺ カウンター', rarity:'common' },
@@ -410,7 +410,7 @@ function assignEnemySkills(){
     const idx = rand(0, pool.length - 1);
     const s = pool.splice(idx, 1)[0];
     const level = Math.min(MAX_SKILL_LEVEL, 1 + Math.floor(gameState.stage / 6));
-    chosen.push({ id: s.id, level, type: s.type, name: s.name, remainingCooldown: 0, revengeUsed: false });
+    chosen.push({ id: s.id, level, type: s.type, name: s.name, remainingCooldown: 0 });
   }
   gameState.enemySkills = chosen;
   updateEnemySkillUI();
@@ -563,8 +563,7 @@ function commitEquips(){
       used: false,
       remainingTurns: 0,
       // 新: active用のクールダウン（装備時は0）
-      remainingCooldown: 0,
-      revengeUsed: false
+      remainingCooldown: 0
     };
   });
   equipTemp = []; skillSelectArea.innerHTML = ''; messageArea.textContent = ''; renderEquipped();
@@ -803,23 +802,6 @@ function applyRegenToUnit(isEnemy, level){
 function processDestroyedList(destroyedList){
   if(!Array.isArray(destroyedList) || destroyedList.length === 0) return;
 
-  const maxFinger = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5;
-  const revengeValue = Math.max(1, maxFinger - 1);
-  const tryTriggerRevenge = (ownerIsEnemy, side) => {
-    const skills = ownerIsEnemy ? (gameState.enemySkills || []) : (gameState.equippedSkills || []);
-    const revengeSkill = skills.find(s => s.id === 'revenge');
-    if(!revengeSkill || revengeSkill.revengeUsed) return false;
-    revengeSkill.revengeUsed = true;
-    if(ownerIsEnemy) gameState.enemy[side] = revengeValue;
-    else gameState.player[side] = revengeValue;
-    const el = ownerIsEnemy
-      ? (side === 'left' ? hands.enemyLeft : (side === 'right' ? hands.enemyRight : hands.enemyThird))
-      : (side === 'left' ? hands.playerLeft : hands.playerRight);
-    if(el) showPopupText(el, `${revengeSkill.name}! ${revengeValue}`, '#ffd166');
-    messageArea.textContent = `${ownerIsEnemy ? '敵' : 'あなた'}の ${revengeSkill.name} が発動！${side}手は破壊を耐えた`;
-    return true;
-  };
-
   // ボスが「転生」を持っているかどうかのみを判定する（composite の中身を参照）
   const bossHasReincarnation = (() => {
     const ba = gameState.bossAbility;
@@ -836,8 +818,6 @@ function processDestroyedList(destroyedList){
   destroyedList.forEach(entry => {
     const { ownerIsEnemy, side, originalValue } = entry;
 
-    if(tryTriggerRevenge(ownerIsEnemy, side)) return;
-
     if(ownerIsEnemy){
       // mark destroyed
       gameState.enemy[side] = 0;
@@ -847,6 +827,7 @@ function processDestroyedList(destroyedList){
 
       // only revive by mod if boss actually has reincarnation ability
       if(bossHasReincarnation){
+        const maxFinger = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5;
         const mod = Number(originalValue) % Number(maxFinger);
         if(mod !== 0){
           gameState.enemy[side] = mod;
@@ -1199,6 +1180,21 @@ function enemyTurn(){
   if(destroyed.length > 0){
     processDestroyedList(destroyed.filter(d => !d.ownerIsEnemy));
   }
+
+  (gameState.enemySkills || []).forEach(s => {
+    if(s.id === 'revenge'){
+      const keys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
+      keys.forEach(side => {
+        if(toNum(gameState.enemy[side]) === 0){
+          const amount = s.level;
+          gameState.enemy[side] = Math.min(HARD_CAP, toNum(gameState.enemy[side]) + amount);
+          const el = (side === 'left' ? hands.enemyLeft : (side === 'right' ? hands.enemyRight : hands.enemyThird));
+          showDamage(el, amount, '#ff9e9e');
+          messageArea.textContent = `敵の ${s.name} が発動した！`;
+        }
+      });
+    }
+  });
 gameState.turnBuffs.forEach(tb => {
   if(tb.payload && tb.payload.type === 'regen') {
     applyRegenToUnit(false, tb.payload.value);
@@ -1416,8 +1412,5 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
-
-
-
 
 
