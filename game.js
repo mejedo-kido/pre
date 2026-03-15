@@ -825,7 +825,7 @@ function processDestroyedList(destroyedList){
     const revengeSkill = holderSkills.find(s => s.id === 'revenge');
     const revengeAlreadyUsed = ownerIsEnemy ? gameState.enemyRevengeUsed : gameState.playerRevengeUsed;
     if(revengeSkill && !revengeAlreadyUsed){
-      const threshold = getDestroyThreshold(!ownerIsEnemy);
+      const threshold = getDestroyThreshold(ownerIsEnemy);
       const survivedValue = Math.max(1, toNum(threshold) - 1);
       if(ownerIsEnemy){
         gameState.enemy[side] = survivedValue;
@@ -1422,4 +1422,3 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
-
