@@ -19,7 +19,7 @@ const SKILL_POOL = [
   { id:'pierce', type:'passive', baseDesc:'相手の指の最大値を減らす', name:'🔩 ピアス', rarity:'epic' },
   { id:'chain', type:'combo', baseDesc:'敵手を破壊した次の攻撃UP', name:'🔗 チェイン', rarity:'common' },
   { id:'fortify', type:'turn', baseDesc:'自分に防御バフを付与', name:'🏰 フォーティファイ', rarity:'rare' },
-  { id:'revenge', type:'event', baseDesc:'バグ発生中(効果なし)', name:'🔥 リベンジ', rarity:'rare' },
+  { id:'revenge', type:'event', baseDesc:'破壊されるとき一度だけ耐え、最大値-1で踏みとどまる', name:'🔥 リベンジ', rarity:'rare' },
   { id:'disrupt', type:'active', baseDesc:'敵の手を減らす（最小1）', name:'🪓 ディスラプト', rarity:'common' },
   { id:'teamPower', type:'turn', baseDesc:'自分に攻撃バフを付与', name:'🌟 チームパワー', rarity:'rare' },
   { id:'counter', type:'event', baseDesc:'攻撃を受けた時、相手の手にもダメージ', name:'↺ カウンター', rarity:'common' },
@@ -115,6 +115,8 @@ const gameState = {
   bossEnemyThresholdMultiplier: 1,
   playerBattleModifiers: { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 },
   playerShield: 0,
+  playerRevengeUsed: false,
+  enemyRevengeUsed: false,
   awaitingEquip: false,
   isEndless: false,
   isGameClear: false,
@@ -370,6 +372,8 @@ function startBattle(){
   gameState.enemyHasThirdHand = false;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.playerShield = 0;
+  gameState.playerRevengeUsed = false;
+  gameState.enemyRevengeUsed = false;
   equipTemp = [];
   selectedHand = null;
   gameState.pendingActiveUse = null;
@@ -402,7 +406,7 @@ function startBattle(){
 
 /* ---------- assign enemy skills ---------- */
 function assignEnemySkills(){
-  const possible = SKILL_POOL.slice().filter(s => s.id !== 'revenge');
+  const possible = SKILL_POOL.slice();
   const skillCount = Math.min(3, 1 + Math.floor(gameState.stage / 4));
   const chosen = [];
   let pool = possible.slice();
@@ -817,6 +821,26 @@ function processDestroyedList(destroyedList){
 
   destroyedList.forEach(entry => {
     const { ownerIsEnemy, side, originalValue } = entry;
+    const holderSkills = ownerIsEnemy ? (gameState.enemySkills || []) : (gameState.equippedSkills || []);
+    const revengeSkill = holderSkills.find(s => s.id === 'revenge');
+    const revengeAlreadyUsed = ownerIsEnemy ? gameState.enemyRevengeUsed : gameState.playerRevengeUsed;
+    if(revengeSkill && !revengeAlreadyUsed){
+      const threshold = getDestroyThreshold(!ownerIsEnemy);
+      const survivedValue = Math.max(1, toNum(threshold) - 1);
+      if(ownerIsEnemy){
+        gameState.enemy[side] = survivedValue;
+        gameState.enemyRevengeUsed = true;
+      } else {
+        gameState.player[side] = survivedValue;
+        gameState.playerRevengeUsed = true;
+      }
+      const el = ownerIsEnemy
+        ? (side === 'left' ? hands.enemyLeft : (side === 'right' ? hands.enemyRight : hands.enemyThird))
+        : (side === 'left' ? hands.playerLeft : hands.playerRight);
+      if(el) showPopupText(el, 'REVENGE!', '#ffd166');
+      messageArea.textContent = `${revengeSkill.name} が発動！${survivedValue} で踏みとどまった`;
+      return;
+    }
 
     if(ownerIsEnemy){
       // mark destroyed
@@ -1181,20 +1205,6 @@ function enemyTurn(){
     processDestroyedList(destroyed.filter(d => !d.ownerIsEnemy));
   }
 
-  (gameState.enemySkills || []).forEach(s => {
-    if(s.id === 'revenge'){
-      const keys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
-      keys.forEach(side => {
-        if(toNum(gameState.enemy[side]) === 0){
-          const amount = s.level;
-          gameState.enemy[side] = Math.min(HARD_CAP, toNum(gameState.enemy[side]) + amount);
-          const el = (side === 'left' ? hands.enemyLeft : (side === 'right' ? hands.enemyRight : hands.enemyThird));
-          showDamage(el, amount, '#ff9e9e');
-          messageArea.textContent = `敵の ${s.name} が発動した！`;
-        }
-      });
-    }
-  });
 gameState.turnBuffs.forEach(tb => {
   if(tb.payload && tb.payload.type === 'regen') {
     applyRegenToUnit(false, tb.payload.value);
@@ -1412,5 +1422,4 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
-
 
