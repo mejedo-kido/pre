@@ -254,6 +254,7 @@ function getSkillCooldown(skillId, level){
   const base = {
     double: 3,
     heal: 4,
+    fortify: 4,
     disrupt: 3,
     overheat: 4,
     pumpUp: 3,
@@ -638,6 +639,12 @@ function renderEquipped(){
         } else if(s.id === 'split'){
           gameState.pendingActiveUse = { id: 'split', idx };
           messageArea.textContent = '分割使用：片手のみ生存の時に、その手を選んでください（分割されます）';
+        } else if(s.id === 'fortify'){
+          const duration = 2 * s.level;
+          applyTurnBuff('fortify', s.level, duration);
+          s.remainingCooldown = getSkillCooldown(s.id, s.level);
+          messageArea.textContent = `${s.name} を使用（防御+${s.level} / ${duration}ターン）`;
+          renderEquipped();
         } else if(s.type === 'turn'){
           // turn-type keep using used + remainingTurns behavior
           s.used = true;
