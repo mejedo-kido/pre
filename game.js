@@ -108,6 +108,7 @@ const gameState = {
   inTitle: true,
   combo: 0,
   baseStats: { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 },
+  enemyBase: { baseThreshold:5, baseAttack:0, baseDefense:0 },
   inBossReward: false,
   bossAbility: null,
   bossTurnCount: 0,
@@ -287,7 +288,7 @@ function computeDefenseForTarget(targetIsEnemy){
   if(targetIsEnemy){
     (gameState.enemySkills || []).forEach(s => { if(s.id === 'guard') reduction += s.level; });
     (gameState.enemyTurnBuffs || []).forEach(tb => { if(tb.payload && (tb.payload.type === 'enemyGuardBoost' || tb.payload.type === 'guardBoost')) reduction += tb.payload.value; });
-    reduction += Number(gameState.enemyTempDefense || 0);
+    reduction += (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseDefense))) ? Number(gameState.enemyBase.baseDefense) : 0;
     const defMul = (gameState.enemyBattleModifiers && gameState.enemyBattleModifiers.defenseMultiplier) ? gameState.enemyBattleModifiers.defenseMultiplier : 1;
     reduction *= defMul;
   } else {
@@ -339,6 +340,7 @@ function initGame(){
 /* ---------- start / stage flow ---------- */
 function startGame(){
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
+  gameState.enemyBase = { baseThreshold:5, baseAttack:0, baseDefense:0 };
   gameState.inBossReward = false;
   gameState.stage = 1;
   gameState.playerTurn = true;
@@ -370,7 +372,7 @@ function startGame(){
 
 function startBattle(){
   if(gameState.inBossReward) return;
-  // reset per-battle temp values
+  // reset per-battle battle modifiers
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.bossAbility = null;
   gameState.bossTurnCount = 0;
@@ -395,10 +397,11 @@ function startBattle(){
   gameState.enemy.third = 0;
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
-    // --- 追加: powerLevel による一時スケーリング用の初期化 ---
-  gameState.enemyTempAttack = 0;
-  gameState.enemyTempDefense = 0;
-  gameState.enemyTempThreshold = 0;
+  gameState.enemyBase = {
+    baseThreshold: (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5,
+    baseAttack: 0,
+    baseDefense: 0
+  };
   gameState.isBoss = (gameState.stage % 3 === 0);
   document.body.classList.toggle('boss', gameState.isBoss);
   if(gameState.isBoss) assignBossAbility();
@@ -415,9 +418,9 @@ function applyEnemyBattleStartPassives(){
   const enemyPossession = (gameState.enemySkills || []).find(s => s.id === 'possession');
   if(!enemyPossession) return;
   gameState.enemy.left = 0;
-  gameState.enemyBattleModifiers.thresholdMultiplier = 2;
-  gameState.enemyBattleModifiers.attackMultiplier = 2;
-  gameState.enemyBattleModifiers.defenseMultiplier = 2;
+  gameState.enemyBase.baseThreshold = Math.max(1, Number(gameState.enemyBase.baseThreshold || 0) * 2);
+  gameState.enemyBase.baseAttack = Number(gameState.enemyBase.baseAttack || 0) * 2;
+  gameState.enemyBase.baseDefense = Number(gameState.enemyBase.baseDefense || 0) * 2;
   messageArea.textContent = '敵のポゼッションが発動：左手を失い、基礎値が2倍に';
 }
 
@@ -519,26 +522,23 @@ function assignBossAbility(){
 }
 /* ---------- apply powerLevel scaling to enemy ---------- */
 function applyPowerScalingToEnemy(){
-  // reset temp values first (defensive)
-  gameState.enemyTempAttack = 0;
-  gameState.enemyTempDefense = 0;
-  gameState.enemyTempThreshold = 0;
+  // reset enemy battle base first (defensive)
+  gameState.enemyBase = {
+    baseThreshold: (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5,
+    baseAttack: 0,
+    baseDefense: 0
+  };
 
   const pl = Number(gameState.powerLevel || 0);
   if(pl <= 0) return;
 
-  // distribute pl points randomly into three buckets (threshold, attack, defense)
+  // distribute pl points randomly into enemy base stats (threshold, attack, defense)
   for(let i=0;i<pl;i++){
     const r = rand(0,2);
-    if(r === 0) gameState.enemyTempThreshold++;
-    else if(r === 1) gameState.enemyTempAttack++;
-    else gameState.enemyTempDefense++;
+    if(r === 0) gameState.enemyBase.baseThreshold++;
+    else if(r === 1) gameState.enemyBase.baseAttack++;
+    else gameState.enemyBase.baseDefense++;
   }
-
-  // NOTE:
-  // - these enemyTemp* values are intentionally temporary (per-battle)
-  // - they are used by getDestroyThreshold() and computeEnemyAttackBonus()
-  // - they do NOT modify enemyBase or any persistent storage
   updateEnemySkillUI();
 }
 
@@ -737,7 +737,6 @@ function updateHand(key, value){
     displayThreshold = (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseThreshold))) ? Number(gameState.enemyBase.baseThreshold) : ((gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5);
     displayThreshold *= (gameState.bossEnemyThresholdMultiplier || 1);
     displayThreshold *= (gameState.enemyBattleModifiers && gameState.enemyBattleModifiers.thresholdMultiplier) ? gameState.enemyBattleModifiers.thresholdMultiplier : 1;
-    displayThreshold += Number(gameState.enemyTempThreshold || 0);
   }
   if(key.startsWith('player')) displayThreshold *= (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
   if(bar) { const pct = displayThreshold > 0 ? Math.min(100, (v / displayThreshold) * 100) : Math.min(100, v * 16); bar.style.width = pct + '%'; }
@@ -786,8 +785,6 @@ function getDestroyThreshold(attackerIsPlayer = true){
     const enemyThresholdMul = (gameState.enemyBattleModifiers && gameState.enemyBattleModifiers.thresholdMultiplier) ? gameState.enemyBattleModifiers.thresholdMultiplier : 1;
     thresholdRaw = thresholdRaw * enemyThresholdMul;
 
-    // <-- 追加: per-battle temporary threshold increases from powerLevel -->
-    thresholdRaw = thresholdRaw + (Number(gameState.enemyTempThreshold || 0));
   } else {
     thresholdRaw = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5);
     const mul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
@@ -1191,7 +1188,6 @@ function enemyTurn(){
   attackValue += computeEnemyAttackBonus(from);
   // include enemy base attack from scaling
   attackValue += (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseAttack))) ? Number(gameState.enemyBase.baseAttack) : 0;
-  attackValue += Number(gameState.enemyTempAttack || 0);
   const enemyAtkMul = (gameState.enemyBattleModifiers && gameState.enemyBattleModifiers.attackMultiplier) ? gameState.enemyBattleModifiers.attackMultiplier : 1;
   attackValue *= enemyAtkMul;
 
