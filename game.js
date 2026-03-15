@@ -18,7 +18,7 @@ const SKILL_POOL = [
   { id:'heal', type:'active', baseDesc:'自分の手を大回復', name:'✨ ヒール', rarity:'rare' },
   { id:'pierce', type:'passive', baseDesc:'相手の指の最大値を減らす', name:'🔩 ピアス', rarity:'epic' },
   { id:'chain', type:'combo', baseDesc:'敵手を破壊した次の攻撃UP', name:'🔗 チェイン', rarity:'common' },
-  { id:'fortify', type:'turn', baseDesc:'自分に防御バフを付与', name:'🏰 フォーティファイ', rarity:'rare' },
+  { id:'fortify', type:'active', baseDesc:'自分に防御バフを付与（クールダウンあり）', name:'🏰 フォーティファイ', rarity:'rare' },
   { id:'revenge', type:'event', baseDesc:'バグ発生中(効果なし)', name:'🔥 リベンジ', rarity:'rare' },
   { id:'disrupt', type:'active', baseDesc:'敵の手を減らす（最小1）', name:'🪓 ディスラプト', rarity:'common' },
   { id:'teamPower', type:'turn', baseDesc:'自分に攻撃バフを付与', name:'🌟 チームパワー', rarity:'rare' },
@@ -254,6 +254,7 @@ function getSkillCooldown(skillId, level){
   const base = {
     double: 3,
     heal: 4,
+    fortify: 4,
     disrupt: 3,
     overheat: 4,
     pumpUp: 3,
@@ -638,6 +639,12 @@ function renderEquipped(){
         } else if(s.id === 'split'){
           gameState.pendingActiveUse = { id: 'split', idx };
           messageArea.textContent = '分割使用：片手のみ生存の時に、その手を選んでください（分割されます）';
+        } else if(s.id === 'fortify'){
+          const duration = 2 * s.level;
+          applyTurnBuff('fortify', s.level, duration);
+          s.remainingCooldown = getSkillCooldown(s.id, s.level);
+          messageArea.textContent = `${s.name} を使用（防御+${s.level} / ${duration}ターン）`;
+          renderEquipped();
         } else if(s.type === 'turn'){
           // turn-type keep using used + remainingTurns behavior
           s.used = true;
