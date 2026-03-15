@@ -1066,24 +1066,68 @@ function enemyTurn(){
   const aliveEnemy = enemyKeys.filter(s => toNum(gameState.enemy[s]) > 0);
   if(alivePlayer.length === 0 || aliveEnemy.length === 0) return;
 
-  (gameState.enemySkills || []).forEach(skill => {
+ (gameState.enemySkills || []).forEach(skill => {
     if(skill.remainingCooldown && skill.remainingCooldown > 0) return;
-    if(skill.id === 'heal'){ const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0); if(candidates.length > 0 && Math.random() < 0.6){ const r = candidates[rand(0, candidates.length - 1)]; const amount = 1 + skill.level; const cur = toNum(gameState.enemy[r]); const nv = safeDecrease(cur, amount); gameState.enemy[r] = nv; const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]; showPopupText(el, `-${amount}`, '#ff9e9e'); skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を使用した`; } }
-    if(skill.id === 'double'){ if(Math.random() < 0.35){ gameState.enemyDoubleMultiplier = 1 + skill.level; skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を構えた`; } }
+    if(skill.id === 'heal'){ const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0); if(candidates.length > 0 && Math.random() < 0.6){ const r = candidates[rand(0, candidates.length - 1)]; const amount = 1 + skill.level; const cur = toNum(gameState.enemy[r]); const nv = safeDecrease(cur, amount); gameState.enemy[r] = nv; const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]; showPopupText(el, `-${amount}`, '#ff9e9e'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
+    if(skill.id === 'double'){ if(Math.random() < 0.35){ gameState.enemyDoubleMultiplier = 1 + skill.level; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; } }
     if(skill.id === 'regen' && Math.random() < 0.3){
   applyRegenToUnit(true, skill.level);
-  skill.remainingCooldown = 3;
+  skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
   messageArea.textContent = `敵が ${skill.name} を使用した`;
 }
-    if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = 3; messageArea.textContent = `敵が ${skill.name} を構えた`; }
-    if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を準備`; }
-    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を使用した`; } }
-    if(skill.id === 'teamPower' && Math.random() < 0.2){ const duration = 2 * skill.level; applyEnemyTurnBuff('teamPower', skill.level, duration); skill.remainingCooldown = 3; messageArea.textContent = `敵が ${skill.name} を使用（味方全体強化）`; }
+    if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; }
+    if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を準備`; }
+    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
+    if(skill.id === 'teamPower' && Math.random() < 0.2){ const duration = 2 * skill.level; applyEnemyTurnBuff('teamPower', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用（味方全体強化）`; }
+    if(skill.id === 'overheat' && Math.random() < 0.3){
+      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+      if(candidates.length > 0){
+        const r = candidates[rand(0, candidates.length - 1)];
+        const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')];
+        gameState.enemy[r] = Math.min(HARD_CAP, toNum(gameState.enemy[r]) + 3);
+        const duration = 2 * (skill.level || 1);
+        applyEnemyTurnBuff('fortify', skill.level, duration);
+        showPopupText(el, '+3', '#ffd166');
+        skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
+        messageArea.textContent = `敵が ${skill.name} を使用した（+3 / 防御上昇）`;
+      }
+    }
+    if(skill.id === 'pumpUp' && Math.random() < 0.35){
+      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+      if(candidates.length > 0){
+        const r = candidates[rand(0, candidates.length - 1)];
+        const amount = skill.level || 1;
+        const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')];
+        gameState.enemy[r] = Math.min(HARD_CAP, toNum(gameState.enemy[r]) + amount);
+        showPopupText(el, `+${amount}`, '#ffd166');
+        skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
+        messageArea.textContent = `敵が ${skill.name} を使用した`;
+      }
+    }
+    if(skill.id === 'split' && Math.random() < 0.35){
+      const alive = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+      if(alive.length === 1){
+        const side = alive[0];
+        const val = toNum(gameState.enemy[side]);
+        if(val >= 2){
+          const half1 = Math.floor(val / 2);
+          const half2 = Math.ceil(val / 2);
+          gameState.enemy.left = half1;
+          gameState.enemy.right = half2;
+          if(gameState.enemyHasThirdHand) gameState.enemy.third = 0;
+          skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
+          messageArea.textContent = `敵が ${skill.name} を使用した（${val} → ${half1}/${half2}）`;
+        }
+      }
+    }
   });
 
   updateEnemySkillUI();
 
-  const from = aliveEnemy[rand(0, aliveEnemy.length - 1)];
+  const aliveEnemyAfterSkills = enemyKeys.filter(s => toNum(gameState.enemy[s]) > 0);
+  if(aliveEnemyAfterSkills.length === 0) return;
+
+  const from = aliveEnemyAfterSkills[rand(0, aliveEnemyAfterSkills.length - 1)];
   const to = alivePlayer[rand(0, alivePlayer.length - 1)];
   const attackerEl = (from === 'left' ? hands.enemyLeft : (from === 'right' ? hands.enemyRight : hands.enemyThird));
   const targetEl = (to === 'left' ? hands.playerLeft : hands.playerRight);
