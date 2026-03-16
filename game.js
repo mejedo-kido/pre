@@ -10,8 +10,8 @@ const HARD_CAP = 99;
 
 /* Skill pool (including new ones) */
 const SKILL_POOL = [
-  { id:'power', type:'passive', baseDesc:'攻撃 +1 / level', name:'💥 パワーアップ', rarity:'rare' },
-  { id:'guard', type:'passive', baseDesc:'敵攻撃 -1 / level', name:'🛡 ガード', rarity:'common' },
+  { id:'power', type:'passive', baseDesc:'攻撃力 +level', name:'💥 パワーアップ', rarity:'rare' },
+  { id:'guard', type:'passive', baseDesc:'防御力 +level', name:'🛡 ガード', rarity:'common' },
   { id:'berserk', type:'passive', baseDesc:'自分の手が4のとき攻撃UP', name:'⚡ バーサーク', rarity:'common' },
   { id:'regen', type:'turn', baseDesc:'敵ターン後に自分のランダムな手を回復 ×level', name:'💚 リジェネ', rarity:'common' },
   { id:'double', type:'active', baseDesc:'次の攻撃が大幅に上昇', name:'⛏ ダブルストライク', rarity:'epic' },
@@ -767,8 +767,6 @@ function computePlayerAttackBonus(handKey){
   return bonus;
 }
 function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === 4) bonus += s.level * 2; }); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
-function computeEnemyAttackReduction(){ let reduction = 0; (gameState.equippedSkills || []).forEach(s => { if(s.type === 'passive' && s.id === 'guard') reduction += s.level; }); gameState.turnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'guardBoost') reduction += tb.payload.value; }); return reduction; }
-
 /* ---------- destroy threshold ---------- */
 function getDestroyThreshold(attackerIsPlayer = true){
   const targetIsEnemy = attackerIsPlayer === true;
@@ -1195,9 +1193,6 @@ function enemyTurn(){
   const playerDefMul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.defenseMultiplier) ? gameState.playerBattleModifiers.defenseMultiplier : 1;
   const defense = computeDefenseForTarget(false) + (baseDef * playerDefMul);
   attackValue = Math.max(0, attackValue - defense);
-
-  const reduction = computeEnemyAttackReduction();
-  attackValue = Math.max(0, attackValue - reduction);
 
   const multiplier = gameState.enemyDoubleMultiplier || 1; gameState.enemyDoubleMultiplier = 1; attackValue = attackValue * multiplier;
 
