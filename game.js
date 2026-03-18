@@ -122,7 +122,9 @@ const gameState = {
   awaitingEquip: false,
   isEndless: false,
   isGameClear: false,
-  powerLevel: 0
+  powerLevel: 0,
+  isTutorial: false,
+  tutorialBattleStep: 0
 };
 
 let selectedHand = null;
@@ -132,11 +134,34 @@ let _overlayEl = null;
 /* ---------- DOM ---------- */
 const titleScreen = document.getElementById('titleScreen');
 const ruleScreen = document.getElementById('ruleScreen');
+const tutorialScreen = document.getElementById('tutorialScreen');
 const startButton = document.getElementById('startButton');
+const tutorialButton = document.getElementById('tutorialButton');
 const resetButton = document.getElementById('resetButton');
 const ruleNextButton = document.getElementById('ruleNextButton');
 const ruleBackButton = document.getElementById('ruleBackButton');
 const bestStageValue = document.getElementById('bestStageValue');
+
+const tutorialStepLabel = document.getElementById('tutorialStepLabel');
+const tutorialTitle = document.getElementById('tutorialTitle');
+const tutorialText = document.getElementById('tutorialText');
+const tutorialPrevButton = document.getElementById('tutorialPrevButton');
+const tutorialNextButton = document.getElementById('tutorialNextButton');
+const tutorialCloseButton = document.getElementById('tutorialCloseButton');
+const tutorialBattleButton = document.getElementById('tutorialBattleButton');
+const tutorialDots = Array.from(document.querySelectorAll('.tutorial-dot'));
+
+const TUTORIAL_PAGES = [
+  { title:'勝利条件を覚えよう', text:`敵のすべての手を 0 にすると勝利です。
+自分の左右の手が両方 0 になると敗北です。` },
+  { title:'基本操作', text:`自分の手を1つ選択し、敵の手をクリックして攻撃します。
+攻撃値は選んだ手の値（+補正）です。` },
+  { title:'破壊ルール', text:`敵の手の値が最大値以上になると破壊され、0になります。
+通常最大値は 5 です。` },
+  { title:'実践チュートリアル', text:`最後に固定スクリプトの実戦バトルを行います。
+指示どおりに操作して、ダブルストライクで勝利してみましょう。` }
+];
+let tutorialPageIndex = 0;
 
 const stageInfo = document.getElementById('stageInfo');
 const skillInfo = document.getElementById('skillInfo') || (() => { const el=document.createElement('div'); el.id='skillInfo'; document.querySelector('.container').prepend(el); return el; })();
@@ -212,9 +237,78 @@ function loadBest(){ try { const b = Number(localStorage.getItem(BEST_KEY)); ret
 function saveBest(){ try { localStorage.setItem(BEST_KEY, String(gameState.bestStage)); } catch(e){} }
 
 /* ---------- screen helpers (single source of truth) ---------- */
-function showTitleScreen(){ if(titleScreen) titleScreen.style.display = 'flex'; if(ruleScreen) ruleScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; }
-function showGameScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'block'; }
-function showClearScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'flex'; }
+function showTitleScreen(){ if(titleScreen) titleScreen.style.display = 'flex'; if(ruleScreen) ruleScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; }
+function showGameScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'block'; }
+function showClearScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'flex'; }
+
+
+function renderTutorialPage(){
+  const page = TUTORIAL_PAGES[tutorialPageIndex] || TUTORIAL_PAGES[0];
+  if(tutorialStepLabel) tutorialStepLabel.textContent = `STEP ${tutorialPageIndex + 1} / ${TUTORIAL_PAGES.length}`;
+  if(tutorialTitle) tutorialTitle.textContent = page.title;
+  if(tutorialText) tutorialText.textContent = page.text;
+  tutorialDots.forEach((dot, i) => dot.classList.toggle('active', i === tutorialPageIndex));
+  if(tutorialPrevButton) tutorialPrevButton.disabled = tutorialPageIndex === 0;
+  if(tutorialNextButton){
+    tutorialNextButton.textContent = (tutorialPageIndex === TUTORIAL_PAGES.length - 1) ? '実践へ ▶' : '次へ ▶';
+  }
+}
+
+function openTutorialScreen(){
+  if(titleScreen) titleScreen.style.display = 'none';
+  if(ruleScreen) ruleScreen.style.display = 'none';
+  if(clearScreen) clearScreen.style.display = 'none';
+  const container = document.querySelector('.container');
+  if(container) container.style.display = 'none';
+  if(tutorialScreen) tutorialScreen.style.display = 'flex';
+  tutorialPageIndex = 0;
+  renderTutorialPage();
+}
+
+function startTutorialBattle(){
+  showGameScreen();
+  gameState.isTutorial = true;
+  gameState.tutorialBattleStep = 0;
+  gameState.stage = 1;
+  gameState.isBoss = false;
+  gameState.inBossReward = false;
+  gameState.awaitingEquip = false;
+  gameState.playerTurn = true;
+  gameState.enemyHasThirdHand = false;
+  gameState.player = { left:1, right:1 };
+  gameState.enemy = { left:2, right:1, third:0 };
+  gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
+  gameState.enemyBase = { baseThreshold:5, baseAttack:0, baseDefense:0 };
+  gameState.pendingActiveUse = null;
+  gameState.doubleMultiplier = 1;
+  gameState.turnBuffs = [];
+  gameState.enemyTurnBuffs = [];
+  gameState.enemySkills = [];
+  gameState.enemyDoubleMultiplier = 1;
+  selectedHand = null;
+  equipTemp = [];
+  gameState.equippedSkills = [{ id:'double', level:1, type:'active', name:'⛏ ダブルストライク', desc:'次の攻撃が大幅に上昇', used:false, remainingTurns:0, remainingCooldown:0 }];
+  if(skillSelectArea) skillSelectArea.innerHTML = '';
+  if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: なし（チュートリアル固定）';
+  messageArea.textContent = '実践STEP1: 左手を選択してください';
+  skillInfo.textContent = 'Equipped: ⛏ ダブルストライク Lv1';
+  updateUI();
+  renderEquipped();
+}
+
+function updateTutorialBattleGuide(){
+  if(!gameState.isTutorial) return;
+  const finalTarget = (gameState.tutorialBattleStep === 3 && toNum(gameState.enemy.right) === 0) ? 'left' : 'right';
+  const guides = [
+    '実践STEP1: 左手を選択してください',
+    '実践STEP2: 右の敵手を攻撃してください',
+    '実践STEP3: ダブルストライクを押してください',
+    finalTarget === 'right'
+      ? '実践STEP4: 右の敵手を攻撃して破壊しましょう'
+      : '実践STEP4: 右手は破壊済みです。左の敵手を攻撃して勝利しましょう'
+  ];
+  messageArea.textContent = guides[Math.min(gameState.tutorialBattleStep, guides.length - 1)];
+}
 
 /* ---------- seeding & reset ---------- */
 function seedInitialUnlocks(){ gameState.unlockedSkills = [{ id:'power', level:1 }, { id:'guard', level:1 }]; saveUnlocked(); }
@@ -225,6 +319,8 @@ function resetAllProgress(){
   gameState.isEndless = false;
   gameState.isGameClear = false;
   gameState.powerLevel = 0;
+  gameState.isTutorial = false;
+  gameState.tutorialBattleStep = 0;
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
@@ -240,6 +336,8 @@ function resetFullGameToTitle(){
   gameState.isEndless = false;
   gameState.isGameClear = false;
   gameState.powerLevel = 0;
+  gameState.isTutorial = false;
+  gameState.tutorialBattleStep = 0;
   gameState.awaitingEquip = false;
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
@@ -322,10 +420,15 @@ function initGame(){
   enemySkillArea && (enemySkillArea.innerHTML = '敵スキル: —');
   messageArea && (messageArea.textContent = '');
   // attach handlers (overwrite)
-  if(startButton) startButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'flex'; showTitleScreen(); if(ruleScreen) ruleScreen.style.display = 'flex'; };
+  if(startButton) startButton.onclick = () => { playSE('click', 0.5); showTitleScreen(); if(ruleScreen) ruleScreen.style.display = 'flex'; };
   if(resetButton) resetButton.onclick = () => { playSE('click', 0.5); if(confirm('スキルのアンロックを初期状態にリセットします。\nよろしいですか？')) { resetAllProgress(); updateUI(); } };
   if(ruleNextButton) ruleNextButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showGameScreen(); startGame(); };
   if(ruleBackButton) ruleBackButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showTitleScreen(); };
+  if(tutorialButton) tutorialButton.onclick = () => { playSE('click', 0.5); openTutorialScreen(); };
+  if(tutorialPrevButton) tutorialPrevButton.onclick = () => { playSE('click',0.5); tutorialPageIndex = Math.max(0, tutorialPageIndex - 1); renderTutorialPage(); };
+  if(tutorialNextButton) tutorialNextButton.onclick = () => { playSE('click',0.5); if(tutorialPageIndex >= TUTORIAL_PAGES.length - 1){ startTutorialBattle(); } else { tutorialPageIndex++; renderTutorialPage(); } };
+  if(tutorialBattleButton) tutorialBattleButton.onclick = () => { playSE('click',0.5); startTutorialBattle(); };
+  if(tutorialCloseButton) tutorialCloseButton.onclick = () => { playSE('click',0.5); showTitleScreen(); };
   if(hands.playerLeft) hands.playerLeft.onclick = () => selectHand('left');
   if(hands.playerRight) hands.playerRight.onclick = () => selectHand('right');
   if(hands.enemyLeft) hands.enemyLeft.onclick = () => clickEnemyHand('left');
@@ -359,6 +462,8 @@ function startGame(){
   gameState.isEndless = false;
   gameState.isGameClear = false;
   gameState.powerLevel = 0;
+  gameState.isTutorial = false;
+  gameState.tutorialBattleStep = 0;
   selectedHand = null;
   equipTemp = [];
   if(titleScreen) titleScreen.style.display = 'none';
@@ -641,9 +746,18 @@ function renderEquipped(){
         // active skills use remainingCooldown rather than permanent used flag
         if(s.id === 'double'){
           // double: immediate effect + set cooldown
+          if(gameState.isTutorial && gameState.tutorialBattleStep < 2){
+            messageArea.textContent = 'チュートリアル手順: 先に左手で攻撃してください';
+            return;
+          }
           s.remainingCooldown = getSkillCooldown(s.id, s.level);
           gameState.doubleMultiplier = 1 + s.level;
-          messageArea.textContent = `${s.name} を発動（次の攻撃が×${gameState.doubleMultiplier}）`;
+          if(gameState.isTutorial && gameState.tutorialBattleStep === 2){
+            gameState.tutorialBattleStep = 3;
+            updateTutorialBattleGuide();
+          } else {
+            messageArea.textContent = `${s.name} を発動（次の攻撃が×${gameState.doubleMultiplier}）`;
+          }
           renderEquipped();
         } else if(s.id === 'heal'){
           gameState.pendingActiveUse = { id: 'heal', idx };
@@ -718,7 +832,7 @@ function updateBossUI(){ if(!bossAbilityArea) return; if(!gameState.isBoss || !g
 
 function updateUI(){
   const pThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
-  if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage}`; else stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
+  if(gameState.isTutorial) stageInfo.textContent = 'Tutorial Battle'; else if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage}`; else stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
   let displayPThresh = pThreshold * (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier ? gameState.playerBattleModifiers.thresholdMultiplier : 1);
   if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh}`;
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
@@ -1085,6 +1199,9 @@ function playerAttack(targetSide){
   // clear selection and advance turn
   clearHandSelection();
   gameState.playerTurn = false;
+  if(gameState.isTutorial && gameState.tutorialBattleStep === 1){
+    // 初回攻撃後は固定の敵行動へ
+  }
   updateUI();
   flashScreen();
 
@@ -1106,6 +1223,31 @@ function playerAttack(targetSide){
 /* ---------- enemy turn (skills + attack), with detection/postprocessing ---------- */
 function enemyTurn(){
   if(gameState.inBossReward) return;
+  if(gameState.isTutorial){
+    const tutorialEnemyAlive = ['left','right'].filter(side => toNum(gameState.enemy[side]) > 0);
+    const tutorialPlayerAlive = ['left','right'].filter(side => toNum(gameState.player[side]) > 0);
+    if(tutorialEnemyAlive.length === 0 || tutorialPlayerAlive.length === 0){
+      checkWinLose();
+      return;
+    }
+    const from = tutorialEnemyAlive.includes('left') ? 'left' : tutorialEnemyAlive[0];
+    const to = tutorialPlayerAlive.includes('left') ? 'left' : tutorialPlayerAlive[0];
+    const attackerEl = (from === 'left' ? hands.enemyLeft : hands.enemyRight);
+    const targetEl = (to === 'left' ? hands.playerLeft : hands.playerRight);
+    playSE('attack', 0.65);
+    animateAttack(attackerEl, targetEl);
+    const attackValue = Math.max(0, toNum(gameState.enemy[from]));
+    showDamage(targetEl, attackValue, '#ffb86b');
+    gameState.player[to] = toNum(gameState.player[to]) + attackValue;
+    const destroyed = detectDestroyTargets();
+    if(destroyed.length > 0){ processDestroyedList(destroyed.filter(d => !d.ownerIsEnemy)); }
+    gameState.playerTurn = true;
+    if(gameState.tutorialBattleStep === 1) gameState.tutorialBattleStep = 2;
+    updateUI();
+    updateTutorialBattleGuide();
+    checkWinLose();
+    return;
+  }
   if(gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onEnemyTurnStart === 'function'){
     try { gameState.bossAbility.onEnemyTurnStart(); } catch(e){} 
   }
@@ -1243,6 +1385,10 @@ gameState.turnBuffs.forEach(tb => {
 /* ---------- click handlers ---------- */
 function selectHand(side){
   if(gameState.inBossReward) return;
+  if(gameState.isTutorial && gameState.tutorialBattleStep === 0 && side !== 'left'){
+    messageArea.textContent = 'チュートリアル手順: 左手を選択してください';
+    return;
+  }
   if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'heal'){ applyPendingActiveOnPlayerWrapper(side); return; }
   if(skillSelectArea && skillSelectArea.children.length > 0){ messageArea.textContent = 'まず装備を確定してください'; return; }
   if(!gameState.playerTurn) return;
@@ -1250,10 +1396,20 @@ function selectHand(side){
   playSE('click', 0.5);
   if(gameState.pendingActiveUse && ['heal','overheat','pumpUp','split'].includes(gameState.pendingActiveUse.id)){ applyPendingActiveOnPlayer(side); return; }
   if(selectedHand === side){ selectedHand = null; if(hands.playerLeft) hands.playerLeft.classList.remove('selected'); if(hands.playerRight) hands.playerRight.classList.remove('selected'); messageArea.textContent = '選択を解除しました'; return; }
-  selectedHand = side; if(hands.playerLeft) hands.playerLeft.classList.toggle('selected', side === 'left'); if(hands.playerRight) hands.playerRight.classList.toggle('selected', side === 'right'); messageArea.textContent = '敵の手を選んで攻撃してください';
+  selectedHand = side; if(hands.playerLeft) hands.playerLeft.classList.toggle('selected', side === 'left'); if(hands.playerRight) hands.playerRight.classList.toggle('selected', side === 'right'); if(gameState.isTutorial && gameState.tutorialBattleStep === 0){ gameState.tutorialBattleStep = 1; updateTutorialBattleGuide(); } else { messageArea.textContent = '敵の手を選んで攻撃してください'; }
 }
 function clickEnemyHand(side){
   if(gameState.inBossReward) return;
+  if(gameState.isTutorial){
+    const requiredTarget = (gameState.tutorialBattleStep === 3 && toNum(gameState.enemy.right) === 0) ? 'left' : 'right';
+    if(side !== requiredTarget){
+      messageArea.textContent = requiredTarget === 'right'
+        ? 'チュートリアル手順: 右の敵手を狙ってください'
+        : 'チュートリアル手順: 左の敵手を狙ってください';
+      return;
+    }
+    if(gameState.tutorialBattleStep !== 1 && gameState.tutorialBattleStep !== 3){ updateTutorialBattleGuide(); return; }
+  }
   if(skillSelectArea && skillSelectArea.children.length > 0){ messageArea.textContent = 'まず装備を確定してください'; return; }
   if(!gameState.playerTurn) return;
   if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'disrupt'){ applyPendingActiveOnEnemy(side); return; }
@@ -1312,6 +1468,13 @@ function checkWinLose(){
   const enemyDead = enemyKeys.every(k => toNum(gameState.enemy[k]) === 0);
   if(enemyDead){
     playSE('victory', 0.8);
+    if(gameState.isTutorial){
+      gameState.isTutorial = false;
+      messageArea.textContent = 'チュートリアルクリア！タイトルへ戻ります';
+      updateUI();
+      setTimeout(()=> showTitleScreen(), 1200);
+      return true;
+    }
     if(gameState.isBoss && !gameState.isEndless && gameState.stage >= gameState.maxStage){
       setTimeout(()=> triggerGameClear(), 350); return true;
     }
