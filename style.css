@@ -144,3 +144,19 @@ hr{ border:none; height:1px; background:linear-gradient(90deg, rgba(255,255,255,
   .hand-wrapper{ width:110px }
   .container{ padding:12px }
 }
+
+/* tutorial */
+.tutorial-card{
+  width: min(620px, 94vw);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 18px;
+  text-align: left;
+}
+.tutorial-step{ font-size:12px; color:#ffd166; letter-spacing:.08em; font-weight:700; }
+.tutorial-title{ margin:10px 0 8px; font-size:22px; }
+.tutorial-text{ margin:0; color:#ddd; line-height:1.7; white-space:pre-line; }
+.tutorial-progress{ display:flex; gap:8px; }
+.tutorial-dot{ width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.2); }
+.tutorial-dot.active{ background:var(--accent); box-shadow:0 0 8px rgba(255,209,102,.7); }
