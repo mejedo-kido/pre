@@ -1499,19 +1499,39 @@ function checkWinLose(){
 
 /* ---------- rewards / boss rewards ---------- */
 function generateBaseStatRewards(){
-  const pool = [
-    { id: 'baseAttack', name: '⚔ 基礎攻撃 +1', desc: '全ての攻撃に恒久的に +1（ラン内有効）', apply: () => { gameState.baseStats.baseAttack = (gameState.baseStats.baseAttack || 0) + 1; } },
-    { id: 'baseDefense', name: '🛡 基礎防御 +1', desc: '敵の攻撃に対する恒久的な防御 +1（ラン内有効）', apply: () => { gameState.baseStats.baseDefense = (gameState.baseStats.baseDefense || 0) + 1; } },
-    { id: 'playerThreshold', name: '💎 最大値 +1', desc: '指の最大値を +1（プレイヤー側、ラン内有効）', apply: () => { gameState.baseStats.playerThreshold = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5) + 1; } }
+  return getBaseStatRewardPool().sort(() => Math.random() - 0.5).slice(0, 3);
+}
+function getBaseStatRewardPool(){
+  return [
+    {
+      id: 'baseAttack',
+      name: '⚔ 基礎攻撃 +1',
+      desc: '全ての攻撃に恒久的に +1（ラン内有効）',
+      currentLabel: () => `現在 ${gameState.baseStats.baseAttack}`,
+      apply: () => { gameState.baseStats.baseAttack = (gameState.baseStats.baseAttack || 0) + 1; }
+    },
+    {
+      id: 'baseDefense',
+      name: '🛡 基礎防御 +1',
+      desc: '敵の攻撃に対する恒久的な防御 +1（ラン内有効）',
+      currentLabel: () => `現在 ${gameState.baseStats.baseDefense}`,
+      apply: () => { gameState.baseStats.baseDefense = (gameState.baseStats.baseDefense || 0) + 1; }
+    },
+    {
+      id: 'playerThreshold',
+      name: '💎 最大値 +1',
+      desc: '指の最大値を +1（プレイヤー側、ラン内有効）',
+      currentLabel: () => `現在 ${gameState.baseStats.playerThreshold}`,
+      apply: () => { gameState.baseStats.playerThreshold = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5) + 1; }
+    }
   ];
-  return pool.sort(() => Math.random() - 0.5).slice(0, 3);
 }
 function showBaseRewardSelection(rewards){
   skillSelectArea.innerHTML = '';
   messageArea.textContent = 'スキル報酬がありません。基礎能力を強化してください';
   const wrap = document.createElement('div'); wrap.className = 'skill-choices';
   rewards.forEach(r => {
-    const btn = document.createElement('button'); btn.className = 'skill-btn node-btn'; btn.innerHTML = `<div style="font-weight:700">${r.name}</div><small style="opacity:.9">${r.desc}</small>`; btn.onclick = () => {
+    const btn = document.createElement('button'); btn.className = 'skill-btn node-btn'; btn.innerHTML = `<div style="font-weight:700">${r.name}</div><small style="opacity:.9">${r.desc}</small><div style="font-size:11px;opacity:.85;margin-top:6px">${r.currentLabel ? r.currentLabel() : ''}</div>`; btn.onclick = () => {
       playSE('click', 0.6); r.apply(); messageArea.textContent = `${r.name} を獲得しました`; skillSelectArea.innerHTML = ''; updateUI(); flashScreen(.14);
       setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
     }; wrap.appendChild(btn);
@@ -1555,17 +1575,13 @@ function showRewardSelection(){
 function showBossRewardSelection(){
   gameState.inBossReward = true; gameState.playerTurn = false; skillSelectArea.innerHTML = ''; messageArea.textContent = 'ボス報酬を1つ選んでください（ラン内で恒久）';
   const wrap = document.createElement('div'); wrap.className = 'skill-choices';
-  const options = [
-    { key:'playerThreshold', label:`指の最大値 +1 （現在 ${gameState.baseStats.playerThreshold}）` },
-    { key:'baseAttack', label:`基礎攻撃力 +1 （現在 ${gameState.baseStats.baseAttack}）` },
-    { key:'baseDefense', label:`基礎防御力 +1 （現在 ${gameState.baseStats.baseDefense}）` }
-  ];
+  const options = getBaseStatRewardPool();
   options.forEach(opt => {
-    const btn = document.createElement('button'); btn.className = 'node-btn current'; btn.textContent = opt.label;
+    const btn = document.createElement('button'); btn.className = 'skill-btn node-btn'; btn.innerHTML = `<div style="font-weight:700">${opt.name}</div><small style="opacity:.9">${opt.desc}</small><div style="font-size:11px;opacity:.85;margin-top:6px">${opt.currentLabel ? opt.currentLabel() : ''}</div>`;
     btn.onclick = () => {
       playSE('click', 0.6);
-      if(opt.key === 'playerThreshold'){ const cur = Number(gameState.baseStats.playerThreshold); gameState.baseStats.playerThreshold = Number.isFinite(cur) ? (cur + 1) : 6; } else { gameState.baseStats[opt.key] = (gameState.baseStats[opt.key] || 0) + 1; }
-      messageArea.textContent = `${opt.label} を獲得しました`;
+      opt.apply();
+      messageArea.textContent = `${opt.name} を獲得しました`;
       gameState.bossEnemyThresholdMultiplier = 1; gameState.bossAbility = null; gameState.enemyHasThirdHand = false; updateUI(); gameState.inBossReward = false; skillSelectArea.innerHTML = ''; flashScreen(.18);
       setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
     };
