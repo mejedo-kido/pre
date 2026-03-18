@@ -15,11 +15,37 @@
 
     <div class="title-buttons">
       <button id="startButton" class="bigButton">START</button>
+      <button id="tutorialButton" class="smallButton">チュートリアル</button>
       <button id="resetButton" class="smallButton">リセット（スキル初期化）</button>
     </div>
 
     <div class="bestStage">
       Best Stage : <span id="bestStageValue">1</span>
+    </div>
+  </div>
+
+  <!-- ===== Tutorial Screen ===== -->
+  <div id="tutorialScreen" class="screen" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:22px;">
+    <h2 style="margin:0">🎓 チュートリアル</h2>
+
+    <div class="tutorial-card">
+      <div id="tutorialStepLabel" class="tutorial-step">STEP 1 / 4</div>
+      <h3 id="tutorialTitle" class="tutorial-title">勝利条件を覚えよう</h3>
+      <p id="tutorialText" class="tutorial-text"></p>
+    </div>
+
+    <div class="tutorial-progress" aria-hidden="true">
+      <span class="tutorial-dot active"></span>
+      <span class="tutorial-dot"></span>
+      <span class="tutorial-dot"></span>
+      <span class="tutorial-dot"></span>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; justify-content:center;">
+      <button id="tutorialPrevButton" class="smallButton">◀ 前へ</button>
+      <button id="tutorialNextButton" class="smallButton">次へ ▶</button>
+      <button id="tutorialBattleButton" class="bigButton">固定スクリプト実践バトル</button>
+      <button id="tutorialCloseButton" class="smallButton">タイトルへ戻る</button>
     </div>
   </div>
 
