@@ -20,7 +20,8 @@ const SKILL_POOL = [
   { id:'chain', type:'combo', baseDesc:'敵手を破壊した次の攻撃UP', name:'🔗 チェイン', rarity:'common' },
   { id:'fortify', type:'turn', baseDesc:'自分にシールドを付与', name:'🏰 フォーティファイ', rarity:'rare' },
   { id:'revenge', type:'event', baseDesc:'破壊されるとき一度だけ耐え、最大値-1で踏みとどまる', name:'🔥 リベンジ', rarity:'rare' },
-  { id:'disrupt', type:'active', baseDesc:'敵の手を減らす（最小1）', name:'🪓 ディスラプト', rarity:'common' },
+  { id:'disrupt', type:'active', baseDesc:'敵に毒デバフを付与（Lvターン）', name:'☠ 毒', rarity:'common' },
+  { id:'poisonHand', type:'passive', baseDesc:'攻撃時、毒デバフをLvターン付与', name:'☣ 毒手', rarity:'rare' },
   { id:'teamPower', type:'turn', baseDesc:'自分に攻撃バフを付与', name:'🌟 チームパワー', rarity:'rare' },
   { id:'counter', type:'event', baseDesc:'攻撃を受けた時、相手の手にもダメージ', name:'↺ カウンター', rarity:'common' },
 
@@ -764,7 +765,7 @@ function renderEquipped(){
           messageArea.textContent = 'ヒール使用：自分の手を選んでください';
         } else if(s.id === 'disrupt'){
           gameState.pendingActiveUse = { id: 'disrupt', idx };
-          messageArea.textContent = 'ディスラプト使用：敵の手を選んでください';
+          messageArea.textContent = '毒を使用：敵の手を選んでください';
         } else if(s.id === 'overheat'){
           gameState.pendingActiveUse = { id: 'overheat', idx };
           messageArea.textContent = 'オーバーヒート使用：自分の手を選んでください（+3、シールド+Lv）';
@@ -821,6 +822,7 @@ function updateEnemySkillUI(){
     if(tb.skillId === 'fortify') return `防御+${tb.payload.value} (${tb.remainingTurns})`;
     if(tb.skillId === 'chain') return `次攻撃+${tb.payload.value} (${tb.remainingTurns})`;
     if(tb.skillId === 'teamPower') return `味方全体+${tb.payload.value} (${tb.remainingTurns})`;
+    if(tb.payload && tb.payload.type === 'poisonDebuff') return `毒-${tb.payload.value} (${tb.remainingTurns})`;
     return '';
   }).filter(Boolean);
   const buffText = buffs.length ? ` | Buffs: ${buffs.join(', ')}` : '';
@@ -871,6 +873,22 @@ function applyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId =
 function tickTurnBuffs(){ gameState.turnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.turnBuffs = gameState.turnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.equippedSkills || []).forEach(s => { if(s.remainingTurns > 0) s.remainingTurns = Math.max(0, s.remainingTurns - 1); }); }
 function applyEnemyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId === 'fortify') payload = { type:'enemyGuardBoost', value: level }; else if(skillId === 'teamPower') payload = { type:'teamPower', value: level }; else payload = { type: skillId, value: level }; gameState.enemyTurnBuffs.push({ skillId, remainingTurns: duration, payload }); }
 function tickEnemyTurnBuffs(){ gameState.enemyTurnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.enemyTurnBuffs = gameState.enemyTurnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.enemySkills || []).forEach(s => { if(s.remainingCooldown && s.remainingCooldown > 0) s.remainingCooldown = Math.max(0, s.remainingCooldown - 1); }); }
+function applyPoisonDebuffToUnit(targetIsEnemy, level, duration){
+  const turns = Math.max(1, Number(duration || 1));
+  const potency = Math.max(1, Number(level || 1));
+  if(targetIsEnemy){
+    gameState.enemyTurnBuffs.push({ skillId:'poisonDebuff', remainingTurns: turns, payload:{ type:'poisonDebuff', value: potency } });
+  } else {
+    gameState.turnBuffs.push({ skillId:'poisonDebuff', remainingTurns: turns, payload:{ type:'poisonDebuff', value: potency } });
+  }
+}
+function getPoisonDebuffValue(isEnemyUnit){
+  const buffs = isEnemyUnit ? (gameState.enemyTurnBuffs || []) : (gameState.turnBuffs || []);
+  return buffs.reduce((sum, tb) => {
+    if(tb && tb.payload && tb.payload.type === 'poisonDebuff' && tb.remainingTurns > 0) return sum + Number(tb.payload.value || 0);
+    return sum;
+  }, 0);
+}
 
 function computePlayerAttackBonus(handKey){
   let bonus = 0; (gameState.equippedSkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.player[handKey]) === 4) bonus += s.level * 2; });
@@ -1089,16 +1107,14 @@ function applyPendingActiveOnEnemy(side){
   const pending = gameState.pendingActiveUse; const sk = gameState.equippedSkills[pending.idx];
   if(!sk || sk.used){ gameState.pendingActiveUse = null; messageArea.textContent = 'そのスキルは使用できません'; return; }
    if(pending.id === 'disrupt'){
-    const amount = 1 + sk.level;
+    const duration = Math.max(1, sk.level || 1);
     const key = side;
     const el = hands[key === 'left' ? 'enemyLeft' : (key === 'right' ? 'enemyRight' : 'enemyThird')];
-    const cur = toNum(gameState.enemy[key]);
-    const newVal = safeDecrease(cur, amount);
-    gameState.enemy[key] = newVal;
-    showPopupText(el, `-${amount}`, '#ff9e9e');
+    applyPoisonDebuffToUnit(true, sk.level || 1, duration);
+    showPopupText(el, `毒 ${duration}T`, '#9cff9c');
     // set cooldown
     sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
-    messageArea.textContent = `${sk.name} を ${key} に使用しました (-${amount})`;
+    messageArea.textContent = `${sk.name} を ${key} に使用しました（毒デバフ ${duration}ターン）`;
     gameState.pendingActiveUse = null;
     updateUI();
     renderEquipped();
@@ -1155,6 +1171,7 @@ function playerAttack(targetSide){
 
   let baseAtk = toNum(gameState.player[attackerKey]);
   baseAtk += computePlayerAttackBonus(attackerKey);
+  baseAtk = Math.max(0, baseAtk - getPoisonDebuffValue(false));
 
   const defense = computeDefenseForTarget(true);
 
@@ -1175,6 +1192,12 @@ function playerAttack(targetSide){
   let newVal = curEnemy + added;
   if(!Number.isFinite(newVal)) newVal = 0;
   gameState.enemy[targetSide] = newVal;
+
+  if(hasEquipped('poisonHand')){
+    const poisonLv = Math.max(1, getEquippedLevel('poisonHand'));
+    applyPoisonDebuffToUnit(true, poisonLv, poisonLv);
+    showPopupText(targetEl, `毒 ${poisonLv}T`, '#9cff9c');
+  }
 
   // detect destroyed targets (collect them; actual handling occurs in processDestroyedList)
   const destroyed = detectDestroyTargets();
@@ -1267,7 +1290,7 @@ function enemyTurn(){
 }
     if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; }
     if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を準備`; }
-    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
+    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const duration = Math.max(1, skill.level || 1); applyPoisonDebuffToUnit(false, skill.level || 1, duration); const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `毒 ${duration}T`, '#9cff9c'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した（毒 ${duration}ターン）`; } }
     if(skill.id === 'teamPower' && Math.random() < 0.2){ const duration = 2 * skill.level; applyEnemyTurnBuff('teamPower', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用（味方全体強化）`; }
     if(skill.id === 'overheat' && Math.random() < 0.3){
       const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
@@ -1326,6 +1349,7 @@ function enemyTurn(){
 
   let attackValue = toNum(gameState.enemy[from]);
   attackValue += computeEnemyAttackBonus(from);
+  attackValue = Math.max(0, attackValue - getPoisonDebuffValue(true));
   // include enemy base attack from scaling
   attackValue += (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseAttack))) ? Number(gameState.enemyBase.baseAttack) : 0;
   const enemyAtkMul = (gameState.enemyBattleModifiers && gameState.enemyBattleModifiers.attackMultiplier) ? gameState.enemyBattleModifiers.attackMultiplier : 1;
@@ -1354,6 +1378,13 @@ function enemyTurn(){
   let curPlayer = toNum(gameState.player[to]);
   let newVal = curPlayer + remainingAttack; if(!Number.isFinite(newVal)) newVal = 0;
   gameState.player[to] = newVal;
+
+  const enemyPoisonHand = (gameState.enemySkills || []).find(s => s.id === 'poisonHand');
+  if(enemyPoisonHand){
+    const poisonLv = Math.max(1, Number(enemyPoisonHand.level || 1));
+    applyPoisonDebuffToUnit(false, poisonLv, poisonLv);
+    showPopupText(targetEl, `毒 ${poisonLv}T`, '#9cff9c');
+  }
 
   handleCounter(true, from, false, to);
 
@@ -1443,8 +1474,8 @@ function refreshOverlayContent(owner, hand){
   if(attackerIsPlayer){ const pierceLv = getEquippedLevel('pierce') || 0; if(pierceLv > 0) pierceInfo = `（プレイヤーのピアス: Lv${pierceLv} が適用）`; }
   else { const enemyPierce = (gameState.enemySkills || []).filter(s=>s.id==='pierce').reduce((sum,s)=>sum+(s.level||0),0); if(enemyPierce > 0) pierceInfo = `（敵のピアス: Lv${enemyPierce} が適用）`; }
   const buffs = [];
-  if(isEnemy){ (gameState.enemyTurnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'enemyGuardBoost' || tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainBoost') buffs.push(`次攻撃+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
-  else { (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainBoost') buffs.push(`次攻撃+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
+  if(isEnemy){ (gameState.enemyTurnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'enemyGuardBoost' || tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainBoost') buffs.push(`次攻撃+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'poisonDebuff') buffs.push(`毒-${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
+  else { (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainBoost') buffs.push(`次攻撃+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'poisonDebuff') buffs.push(`毒-${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
   let attackerDouble = (attackerIsPlayer ? gameState.doubleMultiplier : gameState.enemyDoubleMultiplier) || 1;
   const attackerDoubleText = attackerDouble > 1 ? `（次の攻撃が×${attackerDouble}）` : '';
   let sampleAtt = 0;
