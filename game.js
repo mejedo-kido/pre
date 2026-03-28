@@ -8,6 +8,15 @@ const MAX_SKILL_LEVEL = 3;
 const SKILL_LEVEL_CAP = { pierce: 2, possession: 1, split: 1 };
 const HARD_CAP = 99;
 const RELIC_DROP_INTERVAL = 9;
+const CLASS_BASE_SKILL_LEVEL_MAX = 3;
+
+const CLASS_OPTIONS = [
+  { id:'kiara', name:'キアラ', desc:'基礎ステータス上昇量2倍' },
+  { id:'arca', name:'アルカ', desc:'ゲーム開始時にランダムなレリックを1つ獲得' },
+  { id:'vasc', name:'バスク', desc:'スキル選択数 +1' },
+  { id:'sorka', name:'ソーカ', desc:'スキル最大Lvが5（固有キャップ持ちは対象外）' },
+  { id:'mai', name:'マイ', desc:'自分の指最大値と防御力が常時1.5倍' }
+];
 
 /* Skill pool (including new ones) */
 const SKILL_POOL = [
@@ -159,7 +168,9 @@ const gameState = {
   tutorialBattleStep: 0,
   relics: [],
   playerPoisonPower: { left:1, right:1 },
-  enemyPoisonPower: { left:1, right:1, third:1 }
+  enemyPoisonPower: { left:1, right:1, third:1 },
+  selectedClassId: null,
+  classEffects: null
 };
 
 let selectedHand = null;
@@ -173,6 +184,7 @@ const tutorialScreen = document.getElementById('tutorialScreen');
 const startButton = document.getElementById('startButton');
 const tutorialButton = document.getElementById('tutorialButton');
 const resetButton = document.getElementById('resetButton');
+const classSelectArea = document.getElementById('classSelectArea');
 const ruleNextButton = document.getElementById('ruleNextButton');
 const ruleBackButton = document.getElementById('ruleBackButton');
 const bestStageValue = document.getElementById('bestStageValue');
@@ -271,6 +283,53 @@ function loadUnlocked(){ try { const raw = localStorage.getItem(STORAGE_KEY); if
 function loadBest(){ try { const b = Number(localStorage.getItem(BEST_KEY)); return Number.isFinite(b) && b > 0 ? b : 1; } catch(e){ return 1; } }
 function saveBest(){ try { localStorage.setItem(BEST_KEY, String(gameState.bestStage)); } catch(e){} }
 function hasRelic(id){ return (gameState.relics || []).some(r => r.id === id); }
+function getClassDef(id){ return CLASS_OPTIONS.find(c => c.id === id) || null; }
+function getSelectedClassDef(){ return getClassDef(gameState.selectedClassId); }
+function getClassEffects(classId){
+  const base = { baseStatGainMultiplier:1, equipSlotBonus:0, playerSkillMaxLevel:CLASS_BASE_SKILL_LEVEL_MAX, playerMaxFingerMultiplier:1, playerDefenseMultiplier:1, startRelicCount:0 };
+  if(classId === 'kiara') return { ...base, baseStatGainMultiplier:2 };
+  if(classId === 'arca') return { ...base, startRelicCount:1 };
+  if(classId === 'vasc') return { ...base, equipSlotBonus:1 };
+  if(classId === 'sorka') return { ...base, playerSkillMaxLevel:5 };
+  if(classId === 'mai') return { ...base, playerMaxFingerMultiplier:1.5, playerDefenseMultiplier:1.5 };
+  return base;
+}
+function setSelectedClass(classId){
+  if(!getClassDef(classId)) return;
+  gameState.selectedClassId = classId;
+  gameState.classEffects = getClassEffects(classId);
+  renderClassSelection();
+}
+function renderClassSelection(){
+  if(!classSelectArea) return;
+  const selected = gameState.selectedClassId;
+  const title = selected ? `クラスを選択（現在: ${getSelectedClassDef() ? getSelectedClassDef().name : '—'}）` : 'クラスを選択してください';
+  classSelectArea.innerHTML = `<div class="class-select-title">${title}</div>`;
+  const wrap = document.createElement('div');
+  wrap.className = 'class-select-list';
+  CLASS_OPTIONS.forEach(cls => {
+    const btn = document.createElement('button');
+    btn.className = 'class-btn';
+    if(selected === cls.id) btn.classList.add('active');
+    btn.innerHTML = `<strong>${cls.name}</strong><small>${cls.desc}</small>`;
+    btn.onclick = () => { playSE('click', 0.5); setSelectedClass(cls.id); };
+    wrap.appendChild(btn);
+  });
+  classSelectArea.appendChild(wrap);
+}
+function getPlayerSkillCap(skillId){
+  if(SKILL_LEVEL_CAP[skillId]) return SKILL_LEVEL_CAP[skillId];
+  const effects = gameState.classEffects || getClassEffects(gameState.selectedClassId);
+  return effects && Number.isFinite(Number(effects.playerSkillMaxLevel))
+    ? Number(effects.playerSkillMaxLevel)
+    : CLASS_BASE_SKILL_LEVEL_MAX;
+}
+function applyClassBaseStatGain(amount = 1){
+  const effects = gameState.classEffects || getClassEffects(gameState.selectedClassId);
+  const gain = Math.max(1, Number(amount) || 1);
+  const multiplier = effects && Number.isFinite(Number(effects.baseStatGainMultiplier)) ? Number(effects.baseStatGainMultiplier) : 1;
+  return gain * multiplier;
+}
 
 /* ---------- screen helpers (single source of truth) ---------- */
 function showTitleScreen(){ if(titleScreen) titleScreen.style.display = 'flex'; if(ruleScreen) ruleScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; }
@@ -554,6 +613,10 @@ function computeDefenseForTarget(targetIsEnemy){
   } else {
     (gameState.equippedSkills || []).forEach(s => { if(s.id === 'guard') reduction += s.level; });
     (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.payload.type === 'guardBoost') reduction += tb.payload.value; });
+    reduction += (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.baseDefense))) ? Number(gameState.baseStats.baseDefense) : 0;
+    const effects = gameState.classEffects || getClassEffects(gameState.selectedClassId);
+    const mul = effects && Number.isFinite(Number(effects.playerDefenseMultiplier)) ? Number(effects.playerDefenseMultiplier) : 1;
+    reduction = Math.ceil(reduction * mul);
   }
   return reduction;
 }
@@ -572,6 +635,10 @@ function handleCounter(attackerIsEnemy, attackerSide, targetIsEnemy, targetSide)
 
 /* ---------- init & title handling ---------- */
 function initGame(){
+  if(!gameState.selectedClassId && CLASS_OPTIONS.length > 0){
+    gameState.selectedClassId = CLASS_OPTIONS[0].id;
+    gameState.classEffects = getClassEffects(gameState.selectedClassId);
+  }
   const loaded = loadUnlocked();
   if(loaded && loaded.length>0) gameState.unlockedSkills = loaded;
   else seedInitialUnlocks();
@@ -581,10 +648,17 @@ function initGame(){
   skillSelectArea && (skillSelectArea.innerHTML = '');
   enemySkillArea && (enemySkillArea.innerHTML = '敵スキル: —');
   messageArea && (messageArea.textContent = '');
+  renderClassSelection();
   // attach handlers (overwrite)
   if(startButton) startButton.onclick = () => { playSE('click', 0.5); showTitleScreen(); if(ruleScreen) ruleScreen.style.display = 'flex'; };
   if(resetButton) resetButton.onclick = () => { playSE('click', 0.5); if(confirm('スキルのアンロックを初期状態にリセットします。\nよろしいですか？')) { resetAllProgress(); updateUI(); } };
-  if(ruleNextButton) ruleNextButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showGameScreen(); startGame(); };
+  if(ruleNextButton) ruleNextButton.onclick = () => {
+    playSE('click', 0.5);
+    if(!gameState.selectedClassId){ alert('クラスを選択してください'); showTitleScreen(); return; }
+    if(ruleScreen) ruleScreen.style.display = 'none';
+    showGameScreen();
+    startGame();
+  };
   if(ruleBackButton) ruleBackButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showTitleScreen(); };
   if(tutorialButton) tutorialButton.onclick = () => { playSE('click', 0.5); openTutorialScreen(); };
   if(tutorialPrevButton) tutorialPrevButton.onclick = () => { playSE('click',0.5); tutorialPageIndex = Math.max(0, tutorialPageIndex - 1); renderTutorialPage(); };
@@ -604,6 +678,7 @@ function initGame(){
 
 /* ---------- start / stage flow ---------- */
 function startGame(){
+  gameState.classEffects = getClassEffects(gameState.selectedClassId);
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.enemyBase = { baseThreshold:5, baseAttack:0, baseDefense:0 };
   gameState.inBossReward = false;
@@ -634,6 +709,11 @@ function startGame(){
   if(messageArea) messageArea.textContent = '';
   if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: —';
   if(!gameState.unlockedSkills || gameState.unlockedSkills.length === 0) seedInitialUnlocks();
+  if((gameState.classEffects && gameState.classEffects.startRelicCount) || 0){
+    for(let i = 0; i < gameState.classEffects.startRelicCount; i++) grantRandomRelicToPlayer();
+  }
+  const cls = getSelectedClassDef();
+  if(cls && messageArea) messageArea.textContent = `${cls.name} で出撃します`;
   startBattle();
 }
 
@@ -1079,10 +1159,9 @@ function updateEnemySkillUI(){
 function updateBossUI(){ if(!bossAbilityArea) return; if(!gameState.isBoss || !gameState.bossAbility){ bossAbilityArea.textContent = ''; return; } bossAbilityArea.innerHTML = `<span style="color:#ff5555;font-weight:bold">BOSS能力: ${gameState.bossAbility.name}</span><br><small>${gameState.bossAbility.desc}</small>`; }
 
 function updateUI(){
-  const pThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
+  const pThreshold = getDestroyThreshold(false, 'left');
   if(gameState.isTutorial) stageInfo.textContent = 'Tutorial Battle'; else if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage}`; else stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
-  let displayPThresh = pThreshold * (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier ? gameState.playerBattleModifiers.thresholdMultiplier : 1);
-  if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh} | リスキー補正: ${gameState.playerRiskyStrikeBuff >= 0 ? '+' : ''}${gameState.playerRiskyStrikeBuff || 0}`;
+  if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${pThreshold} | リスキー補正: ${gameState.playerRiskyStrikeBuff >= 0 ? '+' : ''}${gameState.playerRiskyStrikeBuff || 0}`;
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
   updateHand('playerLeft', gameState.player.left); updateHand('playerRight', gameState.player.right); updateHand('enemyLeft', gameState.enemy.left); updateHand('enemyRight', gameState.enemy.right);
   if(gameState.enemyHasThirdHand) updateHand('enemyThird', gameState.enemy.third || 0);
@@ -1196,7 +1275,9 @@ function computePlayerAttackBonus(handKey){
 function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === (getMaxFingerForEnemy() - 1)) bonus += s.level * 2; }); bonus += Number(gameState.enemyRiskyStrikeBuff || 0); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
 function getEquipSlotLimit(){
   const hasTechnician = (gameState.relics || []).some(r => r.id === 'technician');
-  return EQUIP_SLOTS + (hasTechnician ? 1 : 0);
+  const effects = gameState.classEffects || getClassEffects(gameState.selectedClassId);
+  const classBonus = effects && Number.isFinite(Number(effects.equipSlotBonus)) ? Number(effects.equipSlotBonus) : 0;
+  return EQUIP_SLOTS + (hasTechnician ? 1 : 0) + classBonus;
 }
 function getPierceReductionAmount(maxFingerValue, pierceLevel){
   const lv = Math.max(0, Number(pierceLevel || 0));
@@ -1226,6 +1307,9 @@ function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
     thresholdRaw = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5);
     const mul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
     thresholdRaw = thresholdRaw * mul;
+    const effects = gameState.classEffects || getClassEffects(gameState.selectedClassId);
+    const classMul = effects && Number.isFinite(Number(effects.playerMaxFingerMultiplier)) ? Number(effects.playerMaxFingerMultiplier) : 1;
+    thresholdRaw = thresholdRaw * classMul;
   }
   let threshold = Number(thresholdRaw);
   if(!Number.isFinite(threshold)) threshold = 5;
@@ -1998,11 +2082,21 @@ function checkWinLose(){
 /* ---------- rewards / boss rewards ---------- */
 function applyRelicEffect(relicId){
   if(relicId === 'reinforcedArmor'){
-    gameState.baseStats.baseAttack = Number(gameState.baseStats.baseAttack || 0) + 2;
-    gameState.baseStats.baseDefense = Number(gameState.baseStats.baseDefense || 0) + 2;
-    gameState.baseStats.playerThreshold = Number(gameState.baseStats.playerThreshold || 5) + 2;
-    gameState.baseStats.maxFinger = Number(gameState.baseStats.maxFinger || 5) + 2;
+    const gain = applyClassBaseStatGain(2);
+    gameState.baseStats.baseAttack = Number(gameState.baseStats.baseAttack || 0) + gain;
+    gameState.baseStats.baseDefense = Number(gameState.baseStats.baseDefense || 0) + gain;
+    gameState.baseStats.playerThreshold = Number(gameState.baseStats.playerThreshold || 5) + gain;
+    gameState.baseStats.maxFinger = Number(gameState.baseStats.maxFinger || 5) + gain;
   }
+}
+function grantRandomRelicToPlayer(){
+  const owned = new Set((gameState.relics || []).map(r => r.id));
+  const pool = RELIC_POOL.filter(r => !owned.has(r.id));
+  if(pool.length === 0) return null;
+  const relic = pool[rand(0, pool.length - 1)];
+  gameState.relics.push({ id:relic.id, name:relic.name, desc:relic.desc });
+  applyRelicEffect(relic.id);
+  return relic;
 }
 function getRelicCandidates(){
   const owned = new Set((gameState.relics || []).map(r => r.id));
@@ -2054,27 +2148,28 @@ function generateBaseStatRewards(){
   return getBaseStatRewardPool().sort(() => Math.random() - 0.5).slice(0, 3);
 }
 function getBaseStatRewardPool(){
+  const gain = applyClassBaseStatGain(1);
   return [
     {
       id: 'baseAttack',
-      name: '⚔ 基礎攻撃 +1',
-      desc: '全ての攻撃に恒久的に +1（ラン内有効）',
+      name: `⚔ 基礎攻撃 +${gain}`,
+      desc: `全ての攻撃に恒久的に +${gain}（ラン内有効）`,
       currentLabel: () => `現在 ${gameState.baseStats.baseAttack}`,
-      apply: () => { gameState.baseStats.baseAttack = (gameState.baseStats.baseAttack || 0) + 1; }
+      apply: () => { gameState.baseStats.baseAttack = (gameState.baseStats.baseAttack || 0) + gain; }
     },
     {
       id: 'baseDefense',
-      name: '🛡 基礎防御 +1',
-      desc: '敵の攻撃に対する恒久的な防御 +1（ラン内有効）',
+      name: `🛡 基礎防御 +${gain}`,
+      desc: `敵の攻撃に対する恒久的な防御 +${gain}（ラン内有効）`,
       currentLabel: () => `現在 ${gameState.baseStats.baseDefense}`,
-      apply: () => { gameState.baseStats.baseDefense = (gameState.baseStats.baseDefense || 0) + 1; }
+      apply: () => { gameState.baseStats.baseDefense = (gameState.baseStats.baseDefense || 0) + gain; }
     },
     {
       id: 'playerThreshold',
-      name: '💎 最大値 +1',
-      desc: '指の最大値を +1（プレイヤー側、ラン内有効）',
+      name: `💎 最大値 +${gain}`,
+      desc: `指の最大値を +${gain}（プレイヤー側、ラン内有効）`,
       currentLabel: () => `現在 ${gameState.baseStats.playerThreshold}`,
-      apply: () => { gameState.baseStats.playerThreshold = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5) + 1; }
+      apply: () => { gameState.baseStats.playerThreshold = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5) + gain; }
     }
   ];
 }
@@ -2093,7 +2188,7 @@ function showBaseRewardSelection(rewards){
 function showRewardSelection(){
   const unlockedIds = (gameState.unlockedSkills || []).map(u=>u.id);
   const picks = [];
-  const getCap = (skillId) => SKILL_LEVEL_CAP[skillId] || MAX_SKILL_LEVEL;
+  const getCap = (skillId) => getPlayerSkillCap(skillId);
   const rewardPool = SKILL_POOL.map(def => {
     const unlocked = (gameState.unlockedSkills || []).find(u => u.id === def.id);
     const isUpgrade = !!(unlocked && (unlocked.level || 1) < getCap(def.id));
@@ -2167,7 +2262,12 @@ function applyPendingActiveOnPlayerWrapper(side){ applyPendingActiveOnPlayer(sid
 /* ---------- helper ---------- */
 function clearHandSelection(){ selectedHand = null; if(hands.playerLeft) hands.playerLeft.classList.remove('selected'); if(hands.playerRight) hands.playerRight.classList.remove('selected'); }
 function getMaxFingerForEnemy(){ return (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5; }
-function getMaxFingerForPlayer(){ return (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5; }
+function getMaxFingerForPlayer(){
+  const base = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5;
+  const effects = gameState.classEffects || getClassEffects(gameState.selectedClassId);
+  const mul = effects && Number.isFinite(Number(effects.playerMaxFingerMultiplier)) ? Number(effects.playerMaxFingerMultiplier) : 1;
+  return Math.max(1, Math.ceil(base * mul));
+}
 
 /* ---------- helper: weighted skill selection ---------- */
 function getSkillWeight(skill){ const r = skill.rarity || 'common'; if(r === 'common') return 60; if(r === 'rare') return 30; if(r === 'epic') return 10; return 50; }
